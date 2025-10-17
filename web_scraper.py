@@ -1,0 +1,254 @@
+#%%
+from typing import List, Dict, Literal, Tuple
+import os
+import json
+import math
+import boto3
+import pandas as pd
+import requests
+from aws_helpers import helpers
+import re
+from io import StringIO
+from dotenv import load_dotenv
+from tavily import TavilyClient
+load_dotenv(override=True)
+
+logger = helpers._setup_logger(name="idk", level=10)
+
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", None)
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", None)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
+
+# Define clients---------
+client = TavilyClient(api_key=TAVILY_API_KEY)
+session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
+                        aws_secret_access_key=AWS_SECRET_KEY,
+                        region_name='us-east-1')
+s3_client = session.client("s3")
+
+# Crawl-------------
+def crawl(url, 
+          instructions, 
+          limit: int=2, 
+          max_depth: int=3, 
+          max_breadth: int=2, 
+          extract_depth: Literal['basic', 'advanced']='advanced', 
+          allow_external: bool=False) -> List[Dict]:
+    response = client.crawl(
+        url=url,
+        instructions=instructions,
+        limit=limit,
+        max_depth=max_depth,
+        max_breadth=max_breadth,
+        extract_depth=extract_depth,
+        allow_external=allow_external
+    )
+
+    results = response['results']
+    return results
+
+def content_extraction(filename):
+    district_number = 0
+    election_type = ''
+    match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
+    if match:
+        election_type = match.group(1)
+        district_number = match.group(2)
+
+    return district_number, election_type
+
+def district_data_population(year: int, df: pd.DataFrame, office_position: str):
+    def precinct_no_contest_data_population(df):
+        cols = df.columns
+        winner_name = cols[3]
+        filename = df.attrs['source_file']
+        district_number, election_type = content_extraction(filename=filename)
+        log =f"""
+Filename: {filename}
+Election type: {election_type}
+District number: {district_number}
+District_total_votes: {df.loc[(df.shape[0] - 1), "Total Votes Cast"]}
+Year: {year}
+Office Position: {office_position}
+Winner: {winner_name}
+    """
+        # logger.debug(log)
+        precincts = []
+        for index, row in df.iterrows():
+            precinct = {}
+            if index == 0:
+                if bool(row.isnull().all()):
+                    logger.debug("First row empty")
+                else:
+                    logger.debug("First row not empty")
+            else:
+                # logger.debug(f"Row:\n{row}")
+                # logger.debug(f"Pct: {row['Pct']}\nWinner: {row[winner_name]}")
+
+                results = [
+                    {
+                        "candidate_name": winner_name,
+                        "votes": row[winner_name]
+                    }
+                ]
+                precinct = {
+                    "precinct_name": row['Pct'],
+                    "precinct_total_votes": row['Total Votes Cast'],
+                    "results": results,
+                    "win_number": math.ceil((row['Total Votes Cast'] / 2) + 1),
+                    "flip_number": 0
+                }
+            precincts.append(precinct)
+        
+        district = {
+            "district_name": f"District_{district_number}",
+            "district_total_votes": df.loc[(df.shape[0] - 1), "Total Votes Cast"],
+            "district_win_number": math.ceil((df.loc[(df.shape[0] - 1), "Total Votes Cast"] / 2) + 1),
+            "district_flip_number": 0,
+            "precincts": precincts
+        }
+
+        return district
+    
+    def precinct_data_population(df):
+        cols = df.columns
+        winner_name = cols[3]
+        runner_up = cols[4]
+        filename = df.attrs['source_file']
+        district_number, election_type = content_extraction(filename=filename)
+        log =f"""
+Filename: {filename}
+Election type: {election_type}
+District number: {district_number}
+District_total_votes: {df.loc[(df.shape[0] - 1), "Total Votes Cast"]}
+Year: {year}
+Office Position: {office_position}
+Winner: {winner_name}
+Runner_up: {runner_up}
+    """
+        # logger.debug(log)
+        precincts = []
+        for index, row in df.iterrows():
+            precinct = {}
+            if index == 0:
+                continue
+            else:
+                # logger.debug(f"Row:\n{row}")
+                # logger.debug(f"Pct: {row['Pct']}\nWinner: {row[winner_name]}")
+
+                results = [
+                    {
+                        "candidate_name": winner_name,
+                        "votes": row[winner_name]
+                    },
+                    {
+                        "candidate_name": runner_up,
+                        "votes": row[runner_up]
+                    }
+                ]
+                precinct = {
+                    "precinct_name": row['Pct'],
+                    "precinct_total_votes": row['Total Votes Cast'],
+                    "results": results,
+                    "win_number": math.ceil((row['Total Votes Cast'] / 2) + (abs(row[winner_name] - row[runner_up]) / 2) + 1),
+                    "flip_number": math.ceil((abs(row[winner_name] - row[runner_up]) / 2) + 1)
+                }
+            precincts.append(precinct)
+        
+        district = {
+            "district_name": f"District_{district_number}",
+            "district_total_votes": int(df.loc[(df.shape[0] - 1), "Total Votes Cast"]),
+            "district_win_number": math.ceil((df.loc[(df.shape[0] - 1), "Total Votes Cast"] / 2) + (abs(df.loc[(df.shape[0] - 1), winner_name] - df.loc[(df.shape[0] - 1), runner_up]) / 2) + 1),
+            "district_flip_number": math.ceil((abs(df.loc[(df.shape[0] - 1), winner_name] - df.loc[(df.shape[0] - 1), runner_up]) / 2) + 1),
+            "precincts": precincts
+        }
+
+        return district
+
+    # No contest for this district election
+    if len(df.columns) == 6:
+        district = precinct_no_contest_data_population(df=df)
+        # logger.debug(json.dumps(precinct_no_contest(df=df), indent=2))
+        return district
+        # districts.append(no_contest(df=df))
+    # At least two candidates in district election
+    else:
+        district = precinct_data_population(df=df)
+        return district
+         
+
+
+def main():
+    YEAR = 2021
+    OFFICE_POSITION = 'House of Delegates'
+    with open("mapping.json", "r") as f:
+        OFFICE_MAP = json.loads(f.read())
+
+    df = pd.DataFrame()
+    url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_MAP["office_id"][OFFICE_POSITION]}"
+    instructions="Get only the election data at the precinct level"
+
+    results = crawl(url=url,
+                    instructions=instructions,
+                    limit=4,
+                    max_depth=3,
+                    max_breadth=4,
+                    extract_depth="advanced",
+                    allow_external=False
+                    )
+    # Loop through districts for particular election year, office position and stage.
+    stages = {}
+    for result in results:
+        url =result['url']
+
+        # Make HTTP request
+        response = requests.get(url)
+
+        # Extract filename from Content-Disposition header
+        filename = None
+        if 'Content-Disposition' in response.headers:
+            content_disposition = response.headers['Content-Disposition']
+            # Parse filename from header (e.g., "attachment; filename=election_HOD_2023_General.csv")
+            filename_match = re.findall('filename="?([^"]+)"?', content_disposition)
+            filename = ''
+            if filename_match:
+                filename = filename_match[0]
+
+        # Load CSV content into DataFrame
+        csv_content = StringIO(response.text)
+        df = pd.read_csv(csv_content, header=0)
+        # Reset index and change column type to float for vote related columns.
+        df.reset_index(drop=True, inplace=True)
+        for col in df.columns[3:]:
+            df[col] = pd.to_numeric(
+                                df[col].astype(str).str.replace(',', ''),
+                                errors='coerce'  # Converts invalid values to NaN
+                    )
+        df.attrs['source_file'] = filename
+        _, election_type = content_extraction(filename=filename)
+
+        district = district_data_population(year=YEAR,
+                        df=df,
+                        office_position=OFFICE_POSITION)
+        if election_type not in stages.keys():
+            stages[election_type] = [district]
+        else:
+            stages[election_type].append(district)
+
+    for stage, districts in stages.items():
+        complete_data = {
+            "record_id": f"{OFFICE_POSITION}_{YEAR}_{stage}",
+            "year": YEAR,
+            "office": OFFICE_POSITION,
+            "stage": stage,
+            "districts": districts
+        }
+        #TODO: Send to appropriate S3 folder.
+        logger.debug(json.dumps(complete_data, indent=2))
+
+if __name__ == "__main__":
+    main()
+    # logger.debug(df.shape[0])
+    # logger.debug(df.dtypes)
+    # df.to_csv(df.attrs['source_file'], index=False)
+# %%
