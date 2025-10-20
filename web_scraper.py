@@ -1,10 +1,12 @@
-#%%
-from typing import List, Dict, Literal, Tuple
+from typing import List, Dict, Literal, Optional
 import os
 import json
+from tqdm.auto import tqdm
 import math
 import boto3
+import time
 import pandas as pd
+import logging
 import requests
 from aws_helpers import helpers
 import re
@@ -13,13 +15,15 @@ from dotenv import load_dotenv
 from tavily import TavilyClient
 load_dotenv(override=True)
 
-logger = helpers._setup_logger(name="idk", level=10)
+logger = helpers._setup_logger(name="idk", level=logging.DEBUG)
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", None)
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", None)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
+S3_BUCKET = 'predictif-election-data'
 
 # Define clients---------
+logger.info("\x1b[33mCreating Tavily and BOTO3 clients\x1b[0m")
 client = TavilyClient(api_key=TAVILY_API_KEY)
 session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
                         aws_secret_access_key=AWS_SECRET_KEY,
@@ -33,19 +37,32 @@ def crawl(url,
           max_depth: int=3, 
           max_breadth: int=2, 
           extract_depth: Literal['basic', 'advanced']='advanced', 
-          allow_external: bool=False) -> List[Dict]:
-    response = client.crawl(
-        url=url,
-        instructions=instructions,
-        limit=limit,
-        max_depth=max_depth,
-        max_breadth=max_breadth,
-        extract_depth=extract_depth,
-        allow_external=allow_external
-    )
+          allow_external: bool=False,
+          max_retries: int=3) -> Optional[List[Dict]]:
+    
 
-    results = response['results']
-    return results
+    for attempt in range(max_retries):
+        try:
+            response = client.crawl(
+                url=url,
+                instructions=instructions,
+                limit=limit,
+                max_depth=max_depth,
+                max_breadth=max_breadth,
+                extract_depth=extract_depth,
+                allow_external=allow_external
+            )
+
+            results = response['results']
+            return results
+        except TimeoutError as e:
+            if attempt < max_retries - 1:
+                wait_time = (5 ** attempt)
+                logger.info(f"\x1b[31mTimeout on attempt {attempt + 1}. Retrying in {wait_time}s...\x1b[0m")
+                time.sleep(wait_time)
+            else:
+                logger.info(f"\x1b[31mFailed after {max_retries} attempts\x1b[0m")
+                raise
 
 def content_extraction(filename):
     district_number = 0
@@ -55,7 +72,9 @@ def content_extraction(filename):
         election_type = match.group(1)
         district_number = match.group(2)
 
-    return district_number, election_type
+        return district_number, election_type
+    else:
+        return None, None
 
 def district_data_population(year: int, df: pd.DataFrame, office_position: str):
     def precinct_no_contest_data_population(df):
@@ -77,10 +96,7 @@ Winner: {winner_name}
         for index, row in df.iterrows():
             precinct = {}
             if index == 0:
-                if bool(row.isnull().all()):
-                    logger.debug("First row empty")
-                else:
-                    logger.debug("First row not empty")
+                continue
             else:
                 # logger.debug(f"Row:\n{row}")
                 # logger.debug(f"Pct: {row['Pct']}\nWinner: {row[winner_name]}")
@@ -176,79 +192,95 @@ Runner_up: {runner_up}
         district = precinct_data_population(df=df)
         return district
          
-
-
+def s3_storage(complete_data):
+    path = f"{complete_data['office']}/{complete_data['year']}/{complete_data['stage']}/{complete_data['office']}_{complete_data['year']}_{complete_data['stage']}.json"
+    s3_client.put_object(Bucket=S3_BUCKET,
+                         Key=path,
+                         Body=json.dumps(complete_data),
+                         ContentType='application/json')
 def main():
-    YEAR = 2021
+    YEARS = [2022, 2023, 2024]
     OFFICE_POSITION = 'House of Delegates'
     with open("mapping.json", "r") as f:
         OFFICE_MAP = json.loads(f.read())
+    for YEAR in YEARS:
+        logger.info(f"\x1b[33mGetting info {YEAR} year\x1b[0m")
+        df = pd.DataFrame()
+        url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_MAP["office_id"][OFFICE_POSITION]}"
+        instructions="Get only the election data at the precinct level"
+        logger.info("\x1b[33mBeginning crawl\x1b[0m")
+        results = crawl(url=url,
+                        instructions=instructions,
+                        limit=200,
+                        max_depth=3,
+                        max_breadth=200,
+                        extract_depth="advanced",
+                        allow_external=False
+                        )
+        # Loop through districts for particular election year, office position and stage.
+        stages = {}
+        logger.info("\x1b[33mProcessing results\x1b[0m")
+        for result in tqdm(results):
+            url =result['url']
+            logger.info(f"\x1b[33mProcessing URL: {url}\x1b[0m")
+            if "https://historical.elections.virginia.gov/elections/download" not in url:
+                continue
 
-    df = pd.DataFrame()
-    url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_MAP["office_id"][OFFICE_POSITION]}"
-    instructions="Get only the election data at the precinct level"
+            # Make HTTP request
+            response = requests.get(url)
 
-    results = crawl(url=url,
-                    instructions=instructions,
-                    limit=4,
-                    max_depth=3,
-                    max_breadth=4,
-                    extract_depth="advanced",
-                    allow_external=False
-                    )
-    # Loop through districts for particular election year, office position and stage.
-    stages = {}
-    for result in results:
-        url =result['url']
+            # Extract filename from Content-Disposition header
+            filename = None
+            if 'Content-Disposition' in response.headers:
+                content_disposition = response.headers['Content-Disposition']
+                # Parse filename from header (e.g., "attachment; filename=election_HOD_2023_General.csv")
+                filename_match = re.findall('filename="?([^"]+)"?', content_disposition)
+                filename = ''
+                if filename_match:
+                    filename = filename_match[0]
 
-        # Make HTTP request
-        response = requests.get(url)
+            # Load CSV content into DataFrame
+            csv_content = StringIO(response.text)
+            df = pd.read_csv(csv_content, header=0)
+            # Reset index and change column type to float for vote related columns.
+            df.reset_index(drop=True, inplace=True)
+            for col in df.columns[3:]:
+                df[col] = pd.to_numeric(
+                                    df[col].astype(str).str.replace(',', ''),
+                                    errors='coerce'  # Converts invalid values to NaN
+                        )
+            df.attrs['source_file'] = filename
+            if not filename:
+                logger.info(filename)
+                logger.info("\x1b[31mFilename not found\x1b[0m")
+                continue
+            district_number, election_type = content_extraction(filename=filename)
+            if not district_number or not election_type:
+                logger.info("\x1b[31mCould not extract district number/election type from filename\x1b[0m")
+                continue
 
-        # Extract filename from Content-Disposition header
-        filename = None
-        if 'Content-Disposition' in response.headers:
-            content_disposition = response.headers['Content-Disposition']
-            # Parse filename from header (e.g., "attachment; filename=election_HOD_2023_General.csv")
-            filename_match = re.findall('filename="?([^"]+)"?', content_disposition)
-            filename = ''
-            if filename_match:
-                filename = filename_match[0]
+            district = district_data_population(year=YEAR,
+                            df=df,
+                            office_position=OFFICE_POSITION)
+            if election_type not in stages.keys():
+                stages[election_type] = [district]
+            else:
+                stages[election_type].append(district)
 
-        # Load CSV content into DataFrame
-        csv_content = StringIO(response.text)
-        df = pd.read_csv(csv_content, header=0)
-        # Reset index and change column type to float for vote related columns.
-        df.reset_index(drop=True, inplace=True)
-        for col in df.columns[3:]:
-            df[col] = pd.to_numeric(
-                                df[col].astype(str).str.replace(',', ''),
-                                errors='coerce'  # Converts invalid values to NaN
-                    )
-        df.attrs['source_file'] = filename
-        _, election_type = content_extraction(filename=filename)
-
-        district = district_data_population(year=YEAR,
-                        df=df,
-                        office_position=OFFICE_POSITION)
-        if election_type not in stages.keys():
-            stages[election_type] = [district]
-        else:
-            stages[election_type].append(district)
-
-    for stage, districts in stages.items():
-        complete_data = {
-            "record_id": f"{OFFICE_POSITION}_{YEAR}_{stage}",
-            "year": YEAR,
-            "office": OFFICE_POSITION,
-            "stage": stage,
-            "districts": districts
-        }
-        #TODO: Send to appropriate S3 folder.
-        logger.debug(json.dumps(complete_data, indent=2))
+        for stage, districts in stages.items():
+            complete_data = {
+                "record_id": f"{OFFICE_POSITION}_{YEAR}_{stage}",
+                "year": YEAR,
+                "office": OFFICE_POSITION,
+                "stage": stage,
+                "districts": districts
+            }
+            s3_storage(complete_data=complete_data)
+            # logger.debug(json.dumps(complete_data, indent=2))
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()
     # logger.debug(df.shape[0])
     # logger.debug(df.dtypes)
     # df.to_csv(df.attrs['source_file'], index=False)
-# %%
