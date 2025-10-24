@@ -64,24 +64,30 @@ def crawl(url,
                 logger.info(f"\x1b[31mFailed after {max_retries} attempts\x1b[0m")
                 raise
 
-def content_extraction(filename):
-    district_number = 0
-    election_type = ''
-    match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
-    if match:
-        election_type = match.group(1)
-        district_number = match.group(2)
+def content_extraction(filename, office_position):
+    if office_position == "House_of_Delegates":
+        district_number = 0
+        election_type = ''
+        match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
+        if match:
+            election_type = match.group(1)
+            district_number = match.group(2)
 
-        return district_number, election_type
+            return district_number, election_type
+        else:
+            return None, None
+    elif office_position == "Governor":
+        return None, None
     else:
         return None, None
+
 
 def district_data_population(year: int, df: pd.DataFrame, office_position: str):
     def precinct_no_contest_data_population(df):
         cols = df.columns
         winner_name = cols[3]
         filename = df.attrs['source_file']
-        district_number, election_type = content_extraction(filename=filename)
+        district_number, election_type = content_extraction(filename=filename, office_position=office_position)
         log =f"""
 Filename: {filename}
 Election type: {election_type}
@@ -131,7 +137,7 @@ Winner: {winner_name}
         winner_name = cols[3]
         runner_up = cols[4]
         filename = df.attrs['source_file']
-        district_number, election_type = content_extraction(filename=filename)
+        district_number, election_type = content_extraction(filename=filename, office_position=office_position)
         log =f"""
 Filename: {filename}
 Election type: {election_type}
@@ -199,15 +205,16 @@ def s3_storage(complete_data):
                          Body=json.dumps(complete_data),
                          ContentType='application/json')
 def main():
-    YEARS = [2022, 2023, 2024]
-    OFFICE_POSITION = 'House of Delegates'
+    YEARS = [2021]
+    # OFFICE_POSITION = 'House_of_Delegates'
+    OFFICE_POSITION = 'Governor'
     with open("mapping.json", "r") as f:
         OFFICE_MAP = json.loads(f.read())
     for YEAR in YEARS:
         logger.info(f"\x1b[33mGetting info {YEAR} year\x1b[0m")
         df = pd.DataFrame()
         url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_MAP["office_id"][OFFICE_POSITION]}"
-        instructions="Get only the election data at the precinct level"
+        instructions="Get only the election data at the precinct level as a downloadable csv"
         logger.info("\x1b[33mBeginning crawl\x1b[0m")
         results = crawl(url=url,
                         instructions=instructions,
@@ -254,7 +261,7 @@ def main():
                 logger.info(filename)
                 logger.info("\x1b[31mFilename not found\x1b[0m")
                 continue
-            district_number, election_type = content_extraction(filename=filename)
+            district_number, election_type = content_extraction(filename=filename, office_position=OFFICE_POSITION)
             if not district_number or not election_type:
                 logger.info("\x1b[31mCould not extract district number/election type from filename\x1b[0m")
                 continue
@@ -273,6 +280,7 @@ def main():
                 "year": YEAR,
                 "office": OFFICE_POSITION,
                 "stage": stage,
+                "total_votes": sum(d['district_total_votes'] for d in districts),
                 "districts": districts
             }
             s3_storage(complete_data=complete_data)
