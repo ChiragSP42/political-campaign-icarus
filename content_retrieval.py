@@ -15,7 +15,7 @@ bedrock_agent = session.client("bedrock-runtime")
 # MODEL_ID = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
 MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0'
 
-with open("content_retrieval_prompt.txt", 'r') as f:
+with open("texts/content_retrieval_prompt.txt", 'r') as f:
     content_retrieval_prompt = f.read()
 
 # user_prompt = 'Office position: House of Delegates\nYear: 2025\n\nWhat would be my message strategy for District 5?'

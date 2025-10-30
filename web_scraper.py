@@ -3,7 +3,8 @@ from typing import List, Dict, Literal, Optional
 import os
 import json
 from tqdm.auto import tqdm
-import math
+from datetime import date
+import election_context
 import boto3
 import time
 import pandas as pd
@@ -67,7 +68,7 @@ def crawl(url,
                 raise
 
 def content_extraction(filename, office_position):
-    if office_position == "House_of_Delegates":
+    if office_position == "House_of_Delegates" or office_position == "U.S._House":
         district_number = 0
         election_type = ''
         match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
@@ -110,6 +111,8 @@ Winner: {winner_name}
     precincts = []
     district = {}
     for index, row in df.iterrows():
+        if row['County/City'] == 'TOTALS':
+            continue
         precinct = {}
         if index == 0:
             continue
@@ -126,7 +129,7 @@ Winner: {winner_name}
 
             if len(df.columns) == 6:
                 precinct = {
-                    "precinct_name": row['Pct'],
+                    "precinct_name": f"{row["County/City"]}_{row['Pct']}",
                     "precinct_total_votes": row['Total Votes Cast'],
                     "results": results,
                     "win_number": np.ceil((row['Total Votes Cast'] / 2) + 1),
@@ -135,7 +138,7 @@ Winner: {winner_name}
             else:
                 runner_up = cols[4]
                 precinct = {
-                    "precinct_name": row['Pct'],
+                    "precinct_name": f"{row["County/City"]}_{row['Pct']}",
                     "precinct_total_votes": row['Total Votes Cast'],
                     "results": results,
                     "win_number": np.ceil((row['Total Votes Cast'] / 2) + (abs(row[winner_name] - row[runner_up]) / 2) + 1),
@@ -169,11 +172,15 @@ def s3_storage(complete_data):
                          Body=json.dumps(complete_data, indent=2),
                          ContentType='application/json')
 def main():
-    YEARS = [2020, 2024]
+    # YEARS = [2020, 2021, 2022, 2023, 2024]
+    YEARS = [2021]
     # OFFICE_POSITION = 'House_of_Delegates'
-    OFFICE_POSITION = 'President'
+    OFFICE_POSITION = 'Lieutenant_Governor'
+    # OFFICE_POSITION = 'U.S._Senate'
+    # OFFICE_POSITION = 'U.S._House'
+    # OFFICE_POSITION = 'Governor'
     logger.info(f"\x1b[33mOffice position: {OFFICE_POSITION}\x1b[0m")
-    with open("mapping.json", "r") as f:
+    with open("id_mapping.json", "r") as f:
         OFFICE_MAP = json.loads(f.read())
     for YEAR in YEARS:
         logger.info(f"\x1b[33mGetting data for the year: {YEAR}\x1b[0m")
@@ -228,7 +235,7 @@ def main():
                 continue
             district_number, election_type = content_extraction(filename=filename, office_position=OFFICE_POSITION)
             if district_number == None and election_type == None:
-                logger.info("\x1b[31mCould not extract district number/election type from filename\x1b[0m")
+                logger.info(f"\x1b[31mCould not extract district number/election type from filename {filename}\x1b[0m")
                 continue
 
             district = data_population(year=YEAR,
