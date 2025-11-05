@@ -4,3 +4,4 @@ python-dotenv
 ipykernel
 pandas
 tavily-python
+tqdm

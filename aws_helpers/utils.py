@@ -24,9 +24,39 @@ from PIL import Image
 from io import BytesIO
 import pandas as pd
 from datasets import Dataset
+import threading
+import itertools
 import concurrent.futures
 from threading import Semaphore
 import logging
+
+class Spinner:
+    def __init__(self, message="Loading...", delay=0.1):
+        self.spinner = itertools.cycle(['.', '..', '...', '....']) # You can customize these characters
+        self.delay = delay
+        self.running = False
+        self.spinner_thread = None
+        self.message = message
+
+    def _spin(self):
+        while self.running:
+            sys.stdout.write(f"\r{self.message} {next(self.spinner)}")
+            sys.stdout.flush()
+            time.sleep(self.delay)
+            sys.stdout.write('\r' + ' ' * (len(self.message) + 5)) # Clear the line
+
+    def start(self):
+        self.running = True
+        self.spinner_thread = threading.Thread(target=self._spin)
+        self.spinner_thread.daemon = True # Allow the main program to exit even if spinner is running
+        self.spinner_thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.spinner_thread:
+            self.spinner_thread.join() # Wait for the spinner thread to finish
+        sys.stdout.write('\r' + ' ' * (len(self.message) + 6) + '\r') # Clear the line completely
+        sys.stdout.flush()
 
 class BatchInference():
     def create_input_jsonl(self) -> None:

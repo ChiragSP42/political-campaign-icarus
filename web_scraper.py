@@ -3,14 +3,13 @@ from typing import List, Dict, Literal, Optional
 import os
 import json
 from tqdm.auto import tqdm
-from datetime import date
-import election_context
 import boto3
 import time
 import pandas as pd
 import numpy as np
 import logging
 import requests
+from datetime import date
 from aws_helpers import helpers
 import re
 from io import StringIO
@@ -18,7 +17,7 @@ from dotenv import load_dotenv
 from tavily import TavilyClient
 load_dotenv(override=True)
 
-logger = helpers._setup_logger(name="idk", level=logging.DEBUG)
+logger = helpers._setup_logger(name="election-scrapper", level=logging.DEBUG)
 
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", None)
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", None)
@@ -67,8 +66,9 @@ def crawl(url,
                 logger.info(f"\x1b[31mFailed after {max_retries} attempts\x1b[0m")
                 raise
 
-def content_extraction(filename, office_position):
-    if office_position == "House_of_Delegates" or office_position == "U.S._House":
+# Extract type of election and district name from filename------
+def content_extraction(filename, is_statewide, office_position):
+    if not is_statewide:
         district_number = 0
         election_type = ''
         match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
@@ -88,12 +88,12 @@ def content_extraction(filename, office_position):
         else:
             return None, None
 
-
-def data_population(year: int, df, office_position: str) -> Dict:        
+# Extract data and populate JSON----------------
+def data_population(year: int, df, office_position: str, is_statewide: bool) -> Dict:        
     cols = df.columns
     winner_name = cols[3]
     filename = df.attrs['source_file']
-    district_number, election_type = content_extraction(filename=filename, office_position=office_position)
+    district_number, election_type = content_extraction(filename=filename, office_position=office_position, is_statewide=is_statewide)
     if district_number is None:
         district_number = 'Statewide'
     else:
@@ -164,104 +164,175 @@ Winner: {winner_name}
         }
 
     return district
-         
+
+# S3 storage-------------         
 def s3_storage(complete_data):
     path = f"{complete_data['office']}/{complete_data['year']}/{complete_data['stage']}/{complete_data['office']}_{complete_data['year']}_{complete_data['stage']}.json"
     s3_client.put_object(Bucket=S3_BUCKET,
                          Key=path,
                          Body=json.dumps(complete_data, indent=2),
                          ContentType='application/json')
+
+# Get election years for office position------------------
+def get_election_years_in_window(election: dict, current_year: int, lookback_years: int = 5) -> List[int]:
+    """
+    Determine which years in the lookback window have elections for a given office.
+    
+    Args:
+        election (dict): Election dict containing name, cycle, election_pattern and description
+        current_year: Current year
+        lookback_years: How many years to look back
+    
+    Returns:
+        List of years when elections occurred
+    """
+    years = list(range(current_year - lookback_years, current_year + 1))
+    
+    cycle = election['cycle']
+    pattern = election['election_pattern']
+    
+    elections_in_window = []
+    
+    if pattern == 'even':
+        # Even-numbered years
+        elections_in_window = [y for y in years if y % 2 == 0]
+    elif pattern == 'odd':
+        # Odd-numbered years
+        elections_in_window = [y for y in years if y % 2 == 1]
+    elif pattern == 'even_biennial':
+        # Senate: every 2 years in even years
+        elections_in_window = [y for y in years if y % 2 == 0]
+    elif pattern == 'annual':
+        # Annual elections
+        elections_in_window = years
+    elif pattern == 'periodic':
+        # Periodic elections (every N years)
+        # Find the most recent election year
+        elections_in_window = []
+        for y in years:
+            if y % cycle == current_year % cycle:
+                elections_in_window.append(y)
+    
+    logger.info(f"Election years for {election['election']}: {elections_in_window}")
+    return elections_in_window
+
+# Process tavily response-----------------
+def process_tavily_response(results, OFFICE_POSITION, YEAR, is_statewide):
+    stages = {}
+    logger.info("\x1b[33mProcessing results\x1b[0m")
+    for result in tqdm(results):
+        url =result['url']
+        logger.info(f"\x1b[33mProcessing URL: {url}\x1b[0m")
+        if "https://historical.elections.virginia.gov/elections/download" not in url:
+            continue
+
+        # Make HTTP request
+        response = requests.get(url)
+
+        # Extract filename from Content-Disposition header
+        filename = None
+        if 'Content-Disposition' in response.headers:
+            content_disposition = response.headers['Content-Disposition']
+            # Parse filename from header (e.g., "attachment; filename=election_HOD_2023_General.csv")
+            filename_match = re.findall('filename="?([^"]+)"?', content_disposition)
+            filename = ''
+            if filename_match:
+                filename = filename_match[0]
+
+        # Load CSV content into DataFrame
+        csv_content = StringIO(response.text)
+        df = pd.read_csv(csv_content, header=0)
+        # Reset index and change column type to float for vote related columns.
+        df.reset_index(drop=True, inplace=True)
+        for col in df.columns[3:]:
+            df[col] = pd.to_numeric(
+                                df[col].astype(str).str.replace(',', ''),
+                                errors='coerce'  # Converts invalid values to NaN
+                    )
+        df.attrs['source_file'] = filename
+        if not filename:
+            logger.info(filename)
+            logger.info("\x1b[31mFilename not found\x1b[0m")
+            continue
+        district_number, election_type = content_extraction(filename=filename, office_position=OFFICE_POSITION, is_statewide=is_statewide)
+        if district_number == None and election_type == None:
+            logger.info(f"\x1b[31mCould not extract district number/election type from filename {filename}\x1b[0m")
+            continue
+
+        district = data_population(year=YEAR,
+                        df=df,
+                        office_position=OFFICE_POSITION,
+                        is_statewide=is_statewide)
+        if election_type not in stages.keys():
+            stages[election_type] = [district]
+        else:
+            stages[election_type].append(district)
+    
+    return stages
+    
 def main():
     # YEARS = [2020, 2021, 2022, 2023, 2024]
-    YEARS = [2021]
+    # YEARS = [2020]
     # OFFICE_POSITION = 'House_of_Delegates'
-    OFFICE_POSITION = 'Lieutenant_Governor'
+    # OFFICE_POSITION = 'Lieutenant_Governor'
     # OFFICE_POSITION = 'U.S._Senate'
     # OFFICE_POSITION = 'U.S._House'
     # OFFICE_POSITION = 'Governor'
-    logger.info(f"\x1b[33mOffice position: {OFFICE_POSITION}\x1b[0m")
-    with open("id_mapping.json", "r") as f:
-        OFFICE_MAP = json.loads(f.read())
-    for YEAR in YEARS:
-        logger.info(f"\x1b[33mGetting data for the year: {YEAR}\x1b[0m")
-        df = pd.DataFrame()
-        url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_MAP["office_id"][OFFICE_POSITION]}"
-        instructions="Get only the election data at the precinct level as a downloadable csv"
-        logger.info("\x1b[33mBeginning crawl\x1b[0m")
-        results = crawl(url=url,
-                        instructions=instructions,
-                        limit=200,
-                        max_depth=3,
-                        max_breadth=200,
-                        extract_depth="advanced",
-                        allow_external=False
-                        )
-        # Loop through districts for particular election year, office position and stage.
-        stages = {}
-        logger.info("\x1b[33mProcessing results\x1b[0m")
-        for result in tqdm(results):
-            url =result['url']
-            logger.info(f"\x1b[33mProcessing URL: {url}\x1b[0m")
-            if "https://historical.elections.virginia.gov/elections/download" not in url:
-                continue
+    current_year = date.today().year
+    with open("election_cycle_testing.json", "r") as f:
+        elections = json.loads(f.read())
 
-            # Make HTTP request
-            response = requests.get(url)
+    for election in elections['elections']: 
+        OFFICE_POSITION = election['election']
+        logger.info(f"\x1b[33mOffice position: {OFFICE_POSITION}\x1b[0m")
+        OFFICE_ID = election['id']
+        YEARS = get_election_years_in_window(election=election, current_year=current_year)
+        is_statewide=election['is_statewide']
+        for YEAR in YEARS:
+            logger.info(f"\x1b[33mYear: {YEAR}\x1b[0m")
+            # Check if election has already been populated to conserve tavily credits
+            s3_elections = helpers.list_obj_s3(s3_client=s3_client,
+                                               bucket_name=S3_BUCKET,
+                                               folder_name='',
+                                               delimiter='/')
+            s3_elections = [e.replace('/', '') for e in s3_elections]
+            # logger.debug(s3_elections)
+            if OFFICE_POSITION in s3_elections:
+                election_years = helpers.list_obj_s3(s3_client=s3_client,
+                                                     bucket_name=S3_BUCKET,
+                                                     folder_name=OFFICE_POSITION+"/",
+                                                     delimiter='/')
+                election_years = [int(y.replace('/', '').replace(OFFICE_POSITION, '')) for y in election_years]
+                # logger.debug(election_years)
+                if YEAR in election_years:
+                    continue
 
-            # Extract filename from Content-Disposition header
-            filename = None
-            if 'Content-Disposition' in response.headers:
-                content_disposition = response.headers['Content-Disposition']
-                # Parse filename from header (e.g., "attachment; filename=election_HOD_2023_General.csv")
-                filename_match = re.findall('filename="?([^"]+)"?', content_disposition)
-                filename = ''
-                if filename_match:
-                    filename = filename_match[0]
-
-            # Load CSV content into DataFrame
-            csv_content = StringIO(response.text)
-            df = pd.read_csv(csv_content, header=0)
-            # Reset index and change column type to float for vote related columns.
-            df.reset_index(drop=True, inplace=True)
-            for col in df.columns[3:]:
-                df[col] = pd.to_numeric(
-                                    df[col].astype(str).str.replace(',', ''),
-                                    errors='coerce'  # Converts invalid values to NaN
-                        )
-            df.attrs['source_file'] = filename
-            if not filename:
-                logger.info(filename)
-                logger.info("\x1b[31mFilename not found\x1b[0m")
-                continue
-            district_number, election_type = content_extraction(filename=filename, office_position=OFFICE_POSITION)
-            if district_number == None and election_type == None:
-                logger.info(f"\x1b[31mCould not extract district number/election type from filename {filename}\x1b[0m")
-                continue
-
-            district = data_population(year=YEAR,
-                            df=df,
-                            office_position=OFFICE_POSITION)
-            if election_type not in stages.keys():
-                stages[election_type] = [district]
-            else:
-                stages[election_type].append(district)
-
-        for stage, districts in stages.items():
-            complete_data = {
-                "record_id": f"{OFFICE_POSITION}_{YEAR}_{stage}",
-                "year": YEAR,
-                "office": OFFICE_POSITION,
-                "stage": stage,
-                "total_votes": sum(d['district_total_votes'] for d in districts),
-                "districts": districts
-            }
-            s3_storage(complete_data=complete_data)
-            # logger.debug(json.dumps(complete_data, indent=2))
-        time.sleep(60)
+            url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_ID}"
+            instructions="Get only the election data at the precinct level as a downloadable csv"
+            logger.info("\x1b[33mBeginning crawl\x1b[0m")
+            results = crawl(url=url,
+                            instructions=instructions,
+                            limit=200,
+                            max_depth=3,
+                            max_breadth=200,
+                            extract_depth="advanced",
+                            allow_external=False
+                            )
+            
+            stages = process_tavily_response(results=results, OFFICE_POSITION=OFFICE_POSITION, YEAR=YEAR, is_statewide=is_statewide)
+            for stage, districts in stages.items():
+                complete_data = {
+                    "record_id": f"{OFFICE_POSITION}_{YEAR}_{stage}",
+                    "year": YEAR,
+                    "office": OFFICE_POSITION,
+                    "stage": stage,
+                    "total_votes": sum(d['district_total_votes'] for d in districts),
+                    "districts": districts
+                }
+                s3_storage(complete_data=complete_data)
+            logger.info("*" * 80)
+            time.sleep(60)
+        logger.info("-" * 80)
 
 if __name__ == "__main__":
     main()
-    # logger.debug(df.shape[0])
-    # logger.debug(df.dtypes)
-    # df.to_csv(df.attrs['source_file'], index=False)
-# %%
