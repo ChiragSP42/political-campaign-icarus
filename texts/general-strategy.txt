@@ -8,6 +8,8 @@ CANDIDATE PROFILE:
 CANDIDATE'S QUESTION:
 {user_query}
 
+{election_laws}
+
 INSTRUCTIONS:
 Provide strategic, actionable advice to help the candidate run an effective campaign. Your expertise covers all aspects of political campaigning, including but not limited to:
 

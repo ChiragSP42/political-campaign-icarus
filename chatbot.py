@@ -12,6 +12,7 @@ ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", '')
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", '')
 GENERAL_STRATEGY_PROMPT = os.getenv("GENERAL_STRATEGY_PROMPT", '')
 PROMPT_FOLDER = 'texts'
+KB_ID = os.getenv("KB_ID", '')
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", None)
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", None)
 
@@ -23,6 +24,8 @@ if not INSIGHTS_GENERALISED_PROMPT:
     raise ValueError("Insights prompt not found. Check env")
 if not GENERAL_STRATEGY_PROMPT:
     raise ValueError("General prompt not found. Check env")
+if not KB_ID:
+    raise ValueError("Knowledge base ID not found. Check env")
 
 logger = helpers._setup_logger(name='chatbot', level=20)
 CANDIDATE_CONTEXT = {
@@ -54,11 +57,13 @@ class PCMChatbot():
                  model_id: str,
                  s3_client: Any,
                  bedrock_runtime: Any,
+                 bedrock_agent_runtime: Any,
                  candidate_context: Dict[str, Any]):
         self.scope_model_id = scope_model_id
         self.model_id = model_id
         self.s3_client = s3_client
         self.bedrock_runtime = bedrock_runtime
+        self.bedrock_agent_runtime = bedrock_agent_runtime
         self.candidate_context = candidate_context
 
     def load_data(self):
@@ -344,6 +349,9 @@ class PCMChatbot():
         """
         Create the final prompt for the LLM with all elections precinct-level context.
         """
+        election_laws = self._retrieve_laws(user_query=user_query)
+        if election_laws:
+            election_laws = f"RELEVANT ELECTION LAWS:\n-----------------------\n{election_laws}"
         if extracted_data:
             context = self._format_for_llm_context_all_elections(extracted_data, candidate_context)
             with open("texts/election_data_context.txt", 'w') as f:
@@ -357,6 +365,7 @@ class PCMChatbot():
                                    current_year=candidate_context.get('current_year'),
                                    user_query=user_query,
                                    election_cycles_context=election_cycles_context,
+                                   election_laws=election_laws,
                                    context=context)
         else:
             with open(os.path.join(PROMPT_FOLDER, GENERAL_STRATEGY_PROMPT, 'r')) as f:
@@ -365,9 +374,11 @@ class PCMChatbot():
             prompt = prompt.format(office_position=candidate_context.get('office_position'),
                                    district_name=candidate_context.get('district_name'),
                                    current_year=candidate_context.get('current_year'),
+                                   election_laws=election_laws,
                                    user_query=user_query)
 
         return prompt
+    
     @helpers.measure_execution_time
     def get_answer_from_bedrock(self, conversation: List, prompt: str) -> Dict:
         """
@@ -388,6 +399,25 @@ class PCMChatbot():
         )
     
         return response
+    
+    def _retrieve_laws(self, user_query: str) -> str:
+        response = self.bedrock_agent_runtime.retrieve(
+            knowledgeBaseId=KB_ID,
+            retrievalQuery={
+                'text': user_query
+            },
+            retrievalConfiguration={
+                'vectorSearchConfiguration': {
+                    'numberOfResults': 15
+                }
+            }
+        )
+        if response['retrievalResults']:
+            results = [result['content']['text'] for result in response['retrievalResults']]
+
+            return "\n\n".join(results)
+        else:
+            return ''
     
     def _format_for_llm_context_all_elections(self, extracted_data: List[Dict[str, Any]], candidate_context: Dict[str, Any]) -> str:
         """
@@ -753,10 +783,12 @@ def main(scope_model_id: str):
     extracted_data = None
     bedrock_runtime = session.client('bedrock-runtime', config=config)
     s3_client = session.client("s3")
+    bedrock_agent_runtime = session.client("bedrock-agent-runtime")
     chatbot = PCMChatbot(scope_model_id=scope_model_id,
                          model_id=scope_model_id,
                          s3_client=s3_client,
                          bedrock_runtime=bedrock_runtime,
+                         bedrock_agent_runtime=bedrock_agent_runtime,
                          candidate_context=CANDIDATE_CONTEXT)
     # Load candidates election data and other election's data for use.
     candidate_election_data, other_election_data = chatbot.load_data()
@@ -786,7 +818,8 @@ def main(scope_model_id: str):
         textual_data = chatbot.create_llm_prompt_with_context_all_elections(user_query=user_query,
                                                                 extracted_data=extracted_data,
                                                                 candidate_context=CANDIDATE_CONTEXT)
-
+        with open('texts/final_prompt.txt', 'w') as f:
+            f.write(textual_data)
         # logger.info("\x1b[33mFinal response from Bedrock...\x1b[0m")
         print("\x1b[33mFinal response from Bedrock...\x1b[0m")
         response = chatbot.get_answer_from_bedrock(conversation=conversation, prompt=textual_data)

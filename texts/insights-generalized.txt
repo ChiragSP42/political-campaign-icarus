@@ -7,6 +7,8 @@ ELECTION CYCLE OVER THE PAST 5 YEARS:
 --------------------------------
 {election_cycles_context}
 
+{election_laws}
+
 ELECTION DATA:
 {context}
 
