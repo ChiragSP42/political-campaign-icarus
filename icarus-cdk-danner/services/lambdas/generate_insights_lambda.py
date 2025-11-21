@@ -1,47 +1,81 @@
-from aws_helpers import helpers, utils
-from typing import Dict, List, Any, Set, Tuple, Optional
-from dotenv import load_dotenv
-import os
-import datetime
+"""
+Lambda Function: generate-insights
+
+Purpose:
+  Retrieves completed questionnaire and generates insights. Lambda is triggered from S3.
+  
+Input (JSON):
+    {
+    "Records": [
+        {
+        "eventVersion": "2.1",
+        "eventSource": "aws:s3",
+        "awsRegion": "us-east-1",
+        "eventTime": "2021-11-20T12:34:56.789Z",
+        "eventName": "ObjectCreated:Put",
+        "userIdentity": {
+            "principalId": "AWS:ABCDEFGHIJKL"
+        },
+        "requestParameters": {
+            "sourceIPAddress": "127.0.0.1"
+        },
+        "responseElements": {
+            "x-amz-request-id": "ABCDEFG12345",
+            "x-amz-id-2": "randomid"
+        },
+        "s3": {
+            "s3SchemaVersion": "1.0",
+            "configurationId": "someConfigRule",
+            "bucket": {
+            "name": "icarus-questionnaires-991033550091",
+            "ownerIdentity": {
+                "principalId": "EXAMPLE"
+            },
+            "arn": "arn:aws:s3:::your-bucket-name"
+            },
+            "object": {
+            "key": "chiragsp69/chiragsp69_questionnaire.json",
+            "size": 12345,
+            "eTag": "abcdef1234567890",
+            "sequencer": "0055AED6DCD90281E5"
+            }
+        }
+        }
+    ]
+    }
+  
+Output:
+{
+    'statusCode': 200,
+    'body': json.dumps({
+        'success': True,
+        'message': 'Generated insights for {email}',
+        'email': <email>,
+        'savedAt': generated-insights/<email>/<email>_generated_insights.txt
+    }),
+    'headers': {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+    }
+}
+"""
+
 import json
 import boto3
-from botocore.config import Config
-load_dotenv(override=True)
-
-ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", '')
-INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", '')
-GENERAL_STRATEGY_PROMPT = os.getenv("GENERAL_STRATEGY_PROMPT", '')
-PROMPT_FOLDER = 'texts'
-KB_ID = os.getenv("KB_ID", '')
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", None)
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", None)
-
-if not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
-    raise ValueError("AWS credentials not found")
-if not ELECTION_CYCLE_FILENAME:
-    raise ValueError("Election cycle filename not found. Check env")
-if not INSIGHTS_GENERALISED_PROMPT:
-    raise ValueError("Insights prompt not found. Check env")
-if not GENERAL_STRATEGY_PROMPT:
-    raise ValueError("General prompt not found. Check env")
-if not KB_ID:
-    raise ValueError("Knowledge base ID not found. Check env")
-
-logger = helpers._setup_logger(name='chatbot', level=20)
-CANDIDATE_CONTEXT = {
-    "office_position": "House_of_Delegates",
-    "district_name": "District_41",
-    "current_year": 2025
-}
-with open(ELECTION_CYCLE_FILENAME, 'r') as f:
-    ELECTION_CYCLES_DATA = json.loads(f.read())
-
-session = boto3.Session(
-    aws_access_key_id=AWS_ACCESS_KEY,
-    aws_secret_access_key=AWS_SECRET_KEY,
-    region_name='us-east-1'
+import os
+from typing import (
+    Dict,
+    Optional,
+    List,
+    Tuple,
+    Any,
+    Set
 )
+from botocore.config import Config
+from datetime import datetime, date
+from botocore.exceptions import ClientError
 
+# Initialize Boto3 Clients
 config = Config(
     read_timeout=300,
     connect_timeout=60,
@@ -50,6 +84,194 @@ config = Config(
         'mode': 'adaptive'
     }
 )
+bedrock_runtime = boto3.client("bedrock-runtime", config=config)
+s3_client = boto3.client("s3")
+sts_client = boto3.client("sts")
+bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
+
+# Environment variables
+ACCOUNT_ID = sts_client.get_caller_identity()['Account']
+INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
+KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
+PROMPT_BUCKET = os.getenv("PROMPT_BUCKET", 'prompt-bucket')
+PROMPT_BUCKET = f"{PROMPT_BUCKET}-{ACCOUNT_ID}"
+ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", 'election_cycles.json')
+MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+KB_ID = os.environ.get('KB_ID', '')
+S3_GENERATED_INSIGHTS = os.getenv("S3_GENERATED_INSIGHTS", 'generated-insights')
+S3_GENERATED_INSIGHTS = f"{S3_GENERATED_INSIGHTS}-{ACCOUNT_ID}"
+
+response = s3_client.get_object(Bucket=PROMPT_BUCKET, Key=ELECTION_CYCLE_FILENAME)
+ELECTION_CYCLES_DATA = json.loads(response["Body"].read().decode('utf-8'))
+
+def lambda_handler(event, context):
+    """
+    Main Lambda handler function for saving questionnaire.
+
+    The event format: {'email': The email ID, 'answers': The questionnaire answers}
+    """
+    
+    try:
+        # Parse the request body
+        questionnaire_bucket, questionnaire_path, questionnaire_file = parse_event(event=event)
+        username = questionnaire_file.split('_')[0]
+        print(questionnaire_bucket, questionnaire_path, questionnaire_file)
+        print(f"Username: {username}")
+        # Get questionnaire from S3
+        response = s3_client.get_object(Bucket=questionnaire_bucket,
+                                        Key=questionnaire_path)
+        questionnaire = json.loads(response["Body"].read().decode('utf-8'))
+        print(json.dumps(questionnaire, indent=4))
+
+        generated_insights = call_chatbot_logic(bedrock_agent_runtime=bedrock_agent_runtime,
+                                                s3_client=s3_client,
+                                                bedrock_runtime=bedrock_runtime,
+                                                questionnaire=questionnaire['answers'])
+        try:
+            # Save generated insights to S3
+            print(f"Saving to S3, filepath: {S3_GENERATED_INSIGHTS}/{username}/{username}_insights.md")
+            s3_client.put_object(Bucket=S3_GENERATED_INSIGHTS,
+                                Key=f'{username}/{username}_insights.md',
+                                Body=generated_insights,
+                                ContentType='text/markdown')
+            print(f"Saved insights for {username}")
+        except:
+            print("Failed to save in S3")
+        
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'success': True,
+                'message': 'Insights saved successfully',
+                'email': username,
+                'savedAt': datetime.now().isoformat(),
+                'savedPath': f's3://{S3_GENERATED_INSIGHTS}/{username}/{username}_insights.md'
+            }),
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
+        }
+    
+    except json.JSONDecodeError:
+        return error_response(400, 'Invalid JSON in request body')
+    
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return error_response(500, str(e))
+
+def error_response(status_code, message):
+    """Helper function to return error responses."""
+    return {
+        'statusCode': status_code,
+        'body': json.dumps({'error': message}),
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        }
+    }
+
+def parse_event(event: Dict) -> Tuple[str, str, str]:
+    """Function to parse event from S3 trigger.
+
+    Args:
+        event (str): S3 trigger event message
+
+    Returns:
+        Tuple: Tuple of questionnaire S3 bucket name, file path, filename with extension
+    """
+    body = event.get('Records', [])[0]
+    s3_bucket = body['s3']['bucket']['name']
+
+    file_path = body['s3']['object']['key']
+    filename = os.path.basename(file_path)
+
+    return (s3_bucket, file_path, filename)
+
+def call_chatbot_logic(bedrock_runtime: Any, 
+                       bedrock_agent_runtime: Any, 
+                       s3_client: Any,
+                       questionnaire: Dict) -> str:
+    
+    user_context_string = ""
+    try:
+        # Step 2: Prepare context from questionnaire
+        user_context_string = prepare_user_context(questionnaire)
+    except Exception as e:
+        print('Problem preparing context from questionnaire: {str(e)}')
+        return ""
+    
+    chatbot = PCMChatbot(scope_model_id=MODEL_ID,
+                        model_id=MODEL_ID,
+                        s3_client=s3_client,
+                        bedrock_runtime=bedrock_runtime,
+                        bedrock_agent_runtime=bedrock_agent_runtime,
+                        candidate_context=questionnaire)
+    
+    extracted_data = None
+    try:
+        # Load candidates election data and other election's data for use.
+        candidate_election_data, other_election_data = chatbot.load_data()
+        if candidate_election_data and other_election_data:
+            extracted_data = candidate_election_data + other_election_data
+            print("Loaded election data")
+    except Exception as e:
+        print(f'Error loading election data: {str(e)}')
+        return ""
+    
+    textual_data = ""
+    try:
+        # Formatting data for LLM...
+        textual_data = chatbot.create_llm_prompt_with_context_all_elections(extracted_data=extracted_data,
+                                                                            candidate_context=user_context_string)
+        if textual_data:
+            print(f"Textual data: {textual_data[:20]}")
+    except Exception as e:
+        print(f"Error formatting data for LLM: {str(e)}")
+        return ""
+
+    try:
+        # Final response from Bedrock...
+        print("Final response from Bedrock...")
+        response = chatbot.get_answer_from_bedrock(prompt=textual_data)
+        answer = response['output']['message']['content'][0]['text']
+        
+        # Simplified response for now
+        # In production, this would call your full chatbot logic
+        # response = f"Thank you for your question about '{user_message}'. " \
+        #           f"As a campaign strategist for {user_context.get('fullName')}, " \
+        #           f"I'm analyzing your profile for {user_context.get('office')} " \
+        #           f"in {user_context.get('district')}. " \
+        #           f"Based on your background and communication style, " \
+        #           f"I recommend focusing on your key credibility anchors."
+        
+        return answer
+    except Exception as e:
+        print(f"Error getting final response from Bedrock: {str(e)}")
+        return ""
+    
+def prepare_user_context(questionnaire: dict) -> str:
+    """
+    Convert questionnaire data into context for the LLM.
+    
+    Extract:
+    - Office running for
+    - District
+    - Background info (military, public service, etc.)
+    - Communication archetype (Firebrand, Bridge-Builder, etc.)
+    """
+    
+    answers = questionnaire.get('answers', {})
+    
+    context = []
+    for key, value in answers.items():
+        format = f"Question: {key}\nAnswer: {value}"
+        context.append(format)
+
+    context = "\n".join(context)
+    
+    return context
 
 class PCMChatbot():
     def __init__(self,
@@ -58,7 +280,7 @@ class PCMChatbot():
                  s3_client: Any,
                  bedrock_runtime: Any,
                  bedrock_agent_runtime: Any,
-                 candidate_context: Dict[str, Any]):
+                 candidate_context: Dict[str, str]):
         self.scope_model_id = scope_model_id
         self.model_id = model_id
         self.s3_client = s3_client
@@ -69,21 +291,19 @@ class PCMChatbot():
     def load_data(self):
         # Create S3 paths for retrieval of election data.
         # logger.info("\x1b[33mCreating S3 paths of candidates election data and other office's election data\x1b[0m")
-        print("\x1b[33mCreating S3 paths of candidates election data and other office's election data\x1b[0m")
+        print("Creating S3 paths of candidates election data and other office's election data")
         retrieval_plan = self.generate_retrieval_plan_from_election_cycles()
         # Load data from S3.
         # logger.info("\x1b[33mExtracting data from S3\x1b[0m")
-        spinner = utils.Spinner("\x1b[33mExtracting data from S3\x1b[0m")
-        spinner.start()
         # print("\x1b[33mExtracting data from S3\x1b[0m")
         try:
             candidate_election_data, other_election_data = self.extract_data_from_s3_all_elections(retrieval_plan=retrieval_plan,
                                                                     district_name=self.candidate_context['district_name'])
-        finally:
-            spinner.stop()
-            print("\x1b[32mDone\x1b[0m")
+            return candidate_election_data, other_election_data
+        except Exception as e:
+            print(f"Error when extracting data from S3 paths: {str(e)}")
+            return None, None
         
-        return candidate_election_data, other_election_data
 
     def generate_retrieval_plan_from_election_cycles(
         self
@@ -92,7 +312,7 @@ class PCMChatbot():
         Generate the retrieval plan automatically based on candidate context and election cycles.
         
         Args:
-            candidate_context: Dict with office_position, district_name, current_year
+            candidate_context: Dict with candidate questionnaire
             scope: "ALL_ELECTIONS" or "CANDIDATE_OFFICE_ONLY" or "None"
         
         Returns:
@@ -100,7 +320,7 @@ class PCMChatbot():
         """
         candidate_office = self.candidate_context['office_position']
         district_name = self.candidate_context['district_name']
-        current_year = self.candidate_context['current_year']
+        current_year = date.today().year
         lookback_years = 5
         
         years_all = list(range(current_year - lookback_years, current_year + 1))
@@ -188,7 +408,6 @@ class PCMChatbot():
         retrieval_plan['analysis_context']['total_elections_retrieved'] = total_elections
         
         return retrieval_plan
-    @helpers.measure_execution_time
     def extract_data_from_s3_all_elections(self, retrieval_plan: Dict[str, Any], district_name: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Extract precinct-level data from S3 for all elections.
@@ -221,10 +440,10 @@ class PCMChatbot():
                 }
                 
                 candidate_office_data.append(extracted_chunk)
-                logger.debug(f"Extracted data from: {s3_path}")
+                # logger.debug(f"Extracted data from: {s3_path}")
                 
             except Exception as e:
-                logger.debug(f"Error extracting candidate office data from {s3_path}: {str(e)}")
+                print(f"Error extracting candidate office data from {s3_path}: {str(e)}")
         
         # Get the set of precinct names from candidate's district
         candidate_precincts = self._get_candidate_district_precincts(candidate_office_data)
@@ -266,19 +485,17 @@ class PCMChatbot():
                 }
                 
                 other_election_data.append(extracted_chunk)
-                logger.debug(f"Extracted data from: {s3_path}")
+                print(f"Extracted data from: {s3_path}")
                 
             except Exception as e:
-                logger.debug(f"Error extracting other election data from {s3_path}: {str(e)}")
+                print(f"Error extracting other election data from {s3_path}: {str(e)}")
         
         return candidate_office_data, other_election_data
     
     # Understand what kind of question the user has asked---------------------
     def get_scope_decision_from_bedrock(self,
                                         user_query: str,
-                                        candidate_context: Dict[str, Any],
-                                        model_id: str,
-                                        prompt_path: str='texts/scope_decision_prompt.txt') -> str:
+                                        candidate_context: str) -> str:
         """
         Call Bedrock to determine if we need ALL_ELECTIONS or CANDIDATE_OFFICE_ONLY or None.
         This is a lightweight call that returns minimal JSON.
@@ -295,22 +512,20 @@ class PCMChatbot():
                             "reasoning": "1-2 sentence explanation of why this scope was chosen"\n
                         }   
         """
-        with open(prompt_path, 'r') as f:
-            system_prompt = f.read()
+        response = self.s3_client.get_object(Bucket=PROMPT_BUCKET, Key='scope_decision_prompt.txt')
+        system_prompt = response["Body"].read().decode('utf-8')
         
         # Generate election cycles context for LLM
         election_cycles_context = self._generate_election_cycles_context(5)  # Last 5 years
         
         # Replace placeholders
-        full_prompt = system_prompt.replace('{{OFFICE_POSITION}}', candidate_context['office_position'])
-        full_prompt = full_prompt.replace('{{DISTRICT_NAME}}', candidate_context['district_name'])
-        full_prompt = full_prompt.replace('{{CURRENT_YEAR}}', str(candidate_context['current_year']))
-        full_prompt = full_prompt.replace('{{USER_QUERY}}', user_query)
+        full_prompt = system_prompt.replace('{{CANDIDATE_CONTEXT}}', candidate_context)
         full_prompt = full_prompt.replace('{{ELECTION_CYCLES}}', election_cycles_context)
+        full_prompt = full_prompt.replace('{{USER_QUERY}}', user_query)
         
         # Call Bedrock
         response = self.bedrock_runtime.converse(
-            modelId=model_id,
+            modelId=self.model_id,
             messages=[
                 {
                     'role': 'user',
@@ -329,8 +544,8 @@ class PCMChatbot():
         try:
             decision = json.loads(response_text)
             scope = decision.get('scope', 'ALL_ELECTIONS')  # Default to ALL_ELECTIONS
-            logger.info(f"Scope decision: {scope}")
-            logger.info(f"Reasoning: {decision.get('reasoning', 'N/A')}")
+            print(f"Scope decision: {scope}")
+            print(f"Reasoning: {decision.get('reasoning', 'N/A')}")
             return scope
         except json.JSONDecodeError:
             import re
@@ -339,48 +554,49 @@ class PCMChatbot():
                 decision = json.loads(json_match.group(1))
                 return decision.get('scope', 'ALL_ELECTIONS')
             else:
-                logger.warning("Could not parse scope decision, defaulting to ALL_ELECTIONS")
+                print("Could not parse scope decision, defaulting to ALL_ELECTIONS")
                 return 'ALL_ELECTIONS'
             
     def create_llm_prompt_with_context_all_elections(self,
-                                                     user_query: str, 
                                                      extracted_data: Optional[List[Dict[str, Any]]], 
-                                                     candidate_context: Dict[str, Any]) -> str:
+                                                     candidate_context: str) -> str:
         """
         Create the final prompt for the LLM with all elections precinct-level context.
         """
-        election_laws = self._retrieve_laws(user_query=user_query)
-        if election_laws:
-            election_laws = f"RELEVANT ELECTION LAWS:\n-----------------------\n{election_laws}"
         if extracted_data:
-            context = self._format_for_llm_context_all_elections(extracted_data, candidate_context)
-            with open("texts/election_data_context.txt", 'w') as f:
-                f.write(context)
+            print("Using Insights Generalized Prompt")
+            context = self._format_for_llm_context_all_elections(extracted_data)
+            print(f"Formatted DATA context: {context[:20]}")
             election_cycles_context = self._generate_election_cycles_context(5)
-            with open(os.path.join(PROMPT_FOLDER, INSIGHTS_GENERALISED_PROMPT), 'r') as f:
-                prompt = f.read()
 
-            prompt = prompt.format(office_position=candidate_context.get('office_position'),
-                                   district_name=candidate_context.get('district_name'),
-                                   current_year=candidate_context.get('current_year'),
-                                   user_query=user_query,
-                                   election_cycles_context=election_cycles_context,
-                                   election_laws=election_laws,
-                                   context=context)
+            try:
+                print(f"S3 PATH: prompt-bucket-{ACCOUNT_ID}/{INSIGHTS_GENERALISED_PROMPT}")
+                response = s3_client.get_object(Bucket=f'prompt-bucket-{ACCOUNT_ID}', Key=INSIGHTS_GENERALISED_PROMPT)
+                insights_prompt = response['Body'].read().decode('utf-8')
+
+                print(f"S3 PATH: prompt-bucket-{ACCOUNT_ID}/{KB_INSIGHTS_PROMPT}")
+                response = s3_client.get_object(Bucket=f'prompt-bucket-{ACCOUNT_ID}', Key=KB_INSIGHTS_PROMPT)
+                kb_insights_prompt = response['Body'].read().decode('utf-8')
+
+                print("Getting election laws")
+                election_laws = self._retrieve_laws(user_query=kb_insights_prompt)
+                print("Got election laws")
+
+                print(f"S3 prompt: {insights_prompt[:20]}")
+                insights_prompt = insights_prompt.replace("{candidate_context}", candidate_context)
+                insights_prompt = insights_prompt.replace("{election_cycles_context}", election_cycles_context)
+                if election_laws:
+                    insights_prompt = insights_prompt.replace("{election_laws}", election_laws)
+                insights_prompt = insights_prompt.replace("{context}", context)
+                print(f"Formatted prompt: {insights_prompt[:20]}")
+                return insights_prompt
+            except Exception as e:
+                error_response(status_code=400, message=f"Not able to retrieve insights prompt: {str(e)}")
+                return ''
         else:
-            with open(os.path.join(PROMPT_FOLDER, GENERAL_STRATEGY_PROMPT, 'r')) as f:
-                prompt = f.read()
-            
-            prompt = prompt.format(office_position=candidate_context.get('office_position'),
-                                   district_name=candidate_context.get('district_name'),
-                                   current_year=candidate_context.get('current_year'),
-                                   election_laws=election_laws,
-                                   user_query=user_query)
-
-        return prompt
+            return ""
     
-    @helpers.measure_execution_time
-    def get_answer_from_bedrock(self, conversation: List, prompt: str) -> Dict:
+    def get_answer_from_bedrock(self, prompt: str) -> Dict:
         """
         Call Bedrock to get the final strategic answer.
         """
@@ -388,7 +604,7 @@ class PCMChatbot():
                     'role': 'user',
                     'content': [{'text': prompt}]
                 }
-        messages = conversation + [message]
+        messages = [message]
         response = self.bedrock_runtime.converse(
             modelId=self.model_id,
             messages=messages,
@@ -419,7 +635,7 @@ class PCMChatbot():
         else:
             return ''
     
-    def _format_for_llm_context_all_elections(self, extracted_data: List[Dict[str, Any]], candidate_context: Dict[str, Any]) -> str:
+    def _format_for_llm_context_all_elections(self, extracted_data: List[Dict[str, Any]]) -> str:
         """
         Format extracted election data for LLM consumption - all precinct level.
         """
@@ -475,6 +691,28 @@ class PCMChatbot():
             
             if district.get('district_flip_number') is not None:
                 parts.append(f"  🔄 Votes Needed to Flip: {district.get('district_flip_number'):,}")
+
+            if district.get('district_win_gap') is not None:
+                parts.append(f"  Win Gap between winner and runner up: {district.get('district_win_gap'):,}")
+
+            # Candidate results (District/Statewide level)
+            district_total = district.get('district_total_votes', 0)
+            district_results = district.get('district_results')
+            if district_results:
+                results_sorted = sorted(district_results, key=lambda x: x.get('votes', 0), reverse=True)
+                for i, candidate in enumerate(district_results, 1):
+                    candidate_name = candidate.get('candidate_name', 'Unknown')
+                    votes = candidate.get('votes', 0)
+                    percentage = (votes / district_total * 100) if district_total > 0 else 0
+                    
+                    indicator = "🏆" if i == 1 else "  "
+                    parts.append(f"       {indicator} {i}. {candidate_name}: {votes:,} votes ({percentage:.1f}%)")
+                
+                # Calculate margin if there are at least 2 candidates
+                if len(results_sorted) >= 2:
+                    margin = results_sorted[0].get('votes', 0) - results_sorted[1].get('votes', 0)
+                    margin_pct = (margin / district_total * 100) if district_total > 0 else 0
+                    parts.append(f"     Margin: {margin:,} votes ({margin_pct:.1f}%)")
             
             parts.append("")
             parts.append("PRECINCT BREAKDOWN:")
@@ -498,8 +736,11 @@ class PCMChatbot():
                 
                 if precinct.get('flip_number') is not None:
                     parts.append(f"     Flip Number: {precinct.get('flip_number'):,}")
+
+                if precinct.get('win_gap') is not None:
+                    parts.append(f"     Win Gap between winner and runner up: {precinct.get('win_gap'):,}")
                 
-                # Candidate results
+                # Candidate results (Precinct level)
                 results = precinct.get('results', [])
                 if results:
                     results_sorted = sorted(results, key=lambda x: x.get('votes', 0), reverse=True)
@@ -538,11 +779,6 @@ class PCMChatbot():
         context_parts.append("COMPREHENSIVE ELECTION DATA ANALYSIS FOR YOUR CAMPAIGN")
         context_parts.append("=" * 80)
         context_parts.append("")
-        context_parts.append(f"Candidate Information:")
-        context_parts.append(f"  Office: {candidate_context.get('office_position', 'Unknown')}")
-        context_parts.append(f"  District: {candidate_context.get('district_name', 'Unknown')}")
-        context_parts.append(f"  Analysis Year: {candidate_context.get('current_year', 'Unknown')}")
-        context_parts.append("")
         context_parts.append("DATA SCOPE:")
         context_parts.append("  • 5 years of historical precinct-level data")
         context_parts.append("  • All elections that occurred in your district during this period")
@@ -562,7 +798,7 @@ class PCMChatbot():
         
         # Format candidate office data
         if candidate_data:
-            context_parts.append(f"YOUR OFFICE ELECTION HISTORY ({candidate_context.get('office_position', 'Unknown')}):")
+            context_parts.append(f"YOUR OFFICE ELECTION HISTORY:")
             context_parts.append("=" * 80)
             context_parts.append("Precinct-level data for your office over the past 5 years")
             context_parts.append("")
@@ -586,7 +822,7 @@ class PCMChatbot():
         """
         Generate a human-readable description of which elections occur in the past N years.
         """
-        current_year = datetime.datetime.now().year
+        current_year = datetime.now().year
         years = list(range(current_year - lookback_years, current_year + 1))
         
         context_lines = []
@@ -643,7 +879,7 @@ class PCMChatbot():
                 break
         
         if not election_def:
-            logger.warning(f"Office {office_name} not found in election cycles")
+            print(f"Office {office_name} not found in election cycles")
             return []
         
         cycle = election_def['cycle']
@@ -671,7 +907,7 @@ class PCMChatbot():
                 if y % cycle == current_year % cycle:
                     elections_in_window.append(y)
         
-        logger.debug(f"Election years for {office_name}: {elections_in_window}")
+        print(f"Election years for {office_name}: {elections_in_window}")
         return elections_in_window
 
     def _get_candidate_district_precincts(self, extracted_candidate_data: List[Dict[str, Any]]) -> Set[str]:
@@ -690,7 +926,7 @@ class PCMChatbot():
                     if precinct_name:
                         precinct_names.add(precinct_name)
         
-        logger.debug(f"Found {len(precinct_names)} unique precincts in candidate's district")
+        print(f"Found {len(precinct_names)} unique precincts in candidate's district")
         # logger.debug(f"Precinct names: {precinct_names}")
         
         return precinct_names
@@ -760,7 +996,7 @@ class PCMChatbot():
             if precinct_name in candidate_precincts:
                 filtered_precincts.append(precinct)
         
-        logger.debug(f"Filtered statewide {data.get('office')} {data.get('year')} {data.get('stage')}: "
+        print(f"Filtered statewide {data.get('office')} {data.get('year')} {data.get('stage')}: "
                     f"{len(all_precincts)} total precincts -> {len(filtered_precincts)} matching candidate's district")
         
         # Create filtered district
@@ -778,65 +1014,3 @@ class PCMChatbot():
             result['_warning'] = f"No matching precincts found in statewide data for candidate's district"
         
         return result
-
-def main(scope_model_id: str):
-    extracted_data = None
-    bedrock_runtime = session.client('bedrock-runtime', config=config)
-    s3_client = session.client("s3")
-    bedrock_agent_runtime = session.client("bedrock-agent-runtime")
-    chatbot = PCMChatbot(scope_model_id=scope_model_id,
-                         model_id=scope_model_id,
-                         s3_client=s3_client,
-                         bedrock_runtime=bedrock_runtime,
-                         bedrock_agent_runtime=bedrock_agent_runtime,
-                         candidate_context=CANDIDATE_CONTEXT)
-    # Load candidates election data and other election's data for use.
-    candidate_election_data, other_election_data = chatbot.load_data()
-    print("Hello, I'm your personal Political Campaign manager, how can I help you today?")
-    conversation = []
-    while True:
-        user_query = input("\x1b[32m***> \x1b[0m")
-        if user_query.lower() == 'n':
-            break
-        # logger.info("\x1b[33mGetting scope decision from Bedrock...\x1b[0m")
-        print("\x1b[33mGetting scope decision from Bedrock...\x1b[0m")
-        # Step 1: Ask an LLM to figure out what kind of question the user has asked.
-        scope = chatbot.get_scope_decision_from_bedrock(user_query=user_query,
-                                                        candidate_context=CANDIDATE_CONTEXT,
-                                                        model_id=scope_model_id)
-        # logger.info("\x1b[33mAppending relevant data based on scope...\x1b[0m")
-        print("\x1b[33mAppending relevant data based on scope...\x1b[0m")
-        if scope == 'ALL_ELECTIONS':
-            extracted_data = candidate_election_data + other_election_data
-        elif scope == 'CANDIDATE_OFFICE_ONLY':
-            extracted_data = candidate_election_data
-        else:
-            extracted_data = None
-
-        # logger.info("\x1b[33mFormatting data for LLM...\x1b[0m")
-        print("\x1b[33mFormatting data for LLM...\x1b[0m")
-        textual_data = chatbot.create_llm_prompt_with_context_all_elections(user_query=user_query,
-                                                                extracted_data=extracted_data,
-                                                                candidate_context=CANDIDATE_CONTEXT)
-        with open('texts/final_prompt.txt', 'w') as f:
-            f.write(textual_data)
-        # logger.info("\x1b[33mFinal response from Bedrock...\x1b[0m")
-        print("\x1b[33mFinal response from Bedrock...\x1b[0m")
-        response = chatbot.get_answer_from_bedrock(conversation=conversation, prompt=textual_data)
-        conversation_user_message = {
-                    'role': 'user',
-                    'content': [{'text': user_query}]
-                }
-        conversation.append(conversation_user_message)
-        conversation_ai_message = response['output']['message']
-        conversation.append(conversation_ai_message)
-        answer = response['output']['message']['content'][0]['text']
-        print(answer)
-        control = input("\n\nDo you wish to continue? \x1b[32mY\x1b[0m \\ \x1b[31mN\x1b[0m: ")
-        if control.lower() == 'n':
-            break
-
-
-if __name__ == "__main__":
-    scope_model_id = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
-    main(scope_model_id=scope_model_id)

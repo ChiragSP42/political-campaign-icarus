@@ -1,11 +1,7 @@
+streamlit
 boto3
 requests
 python-dotenv
-ipykernel
-pandas
-tavily-python
-tqdm
-streamlit
 streamlit-authenticator
 streamlit-option-menu
 pydantic

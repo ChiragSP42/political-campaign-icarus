@@ -1,7 +1,4 @@
-.env
 .DS_Store
-.vscode/
-__pycache__/
 *.jpg
 *.jsonl
 *.pyc
@@ -14,3 +11,30 @@ Data/
 election_data_context.txt
 testing_questions.md
 final_prompt.txt
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.vscode/
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+secrets.toml
+
+!jest.config.js
+*.d.ts
+node_modules
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+
+# Misc
+project-icarus

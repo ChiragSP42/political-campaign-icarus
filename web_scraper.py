@@ -1,6 +1,7 @@
 #%%
 from typing import List, Dict, Literal, Optional
 import os
+import sys
 import json
 from tqdm.auto import tqdm
 import boto3
@@ -67,24 +68,29 @@ def crawl(url,
                 raise
 
 # Extract type of election and district name from filename------
-def content_extraction(filename, is_statewide, office_position):
+def content_extraction(filename, is_statewide):
+    types_of_election_stages = ['Special_General_Election', 'General_Election', 'Democratic_Primary', 'Republican_Primary']
+    stage = ''
+    for election_stage in types_of_election_stages:
+        if election_stage in filename:
+            stage = election_stage
     if not is_statewide:
         district_number = 0
         election_type = ''
-        match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_District_(\d+)', filename)
+        match = re.search(r'_District_(\d+)', filename)
         if match:
-            election_type = match.group(1)
-            district_number = match.group(2)
-
-            return district_number, election_type
+            district_number = match.group(1)
+        for election_stage in types_of_election_stages:
+            if election_stage in filename:
+                election_type = election_stage
+                return district_number, election_type
         else:
             return None, None
     else:
-        match = re.search(r'_([A-Za-z]+(?:_[A-Za-z]+)?)_including_precincts', filename)
-        if match:
-            election_type = match.group(1)
-
-            return None, election_type
+        for election_stage in types_of_election_stages:
+            if election_stage in filename:
+                election_type = election_stage
+                return None, election_type
         else:
             return None, None
 
@@ -93,7 +99,7 @@ def data_population(year: int, df, office_position: str, is_statewide: bool) -> 
     cols = df.columns
     winner_name = cols[3]
     filename = df.attrs['source_file']
-    district_number, election_type = content_extraction(filename=filename, office_position=office_position, is_statewide=is_statewide)
+    district_number, election_type = content_extraction(filename=filename, is_statewide=is_statewide)
     if district_number is None:
         district_number = 'Statewide'
     else:
@@ -133,7 +139,8 @@ Winner: {winner_name}
                     "precinct_total_votes": row['Total Votes Cast'],
                     "results": results,
                     "win_number": np.ceil((row['Total Votes Cast'] / 2) + 1),
-                    "flip_number": 0
+                    "flip_number": 0,
+                    "win_gap": 0
                 }
             else:
                 runner_up = cols[4]
@@ -142,15 +149,25 @@ Winner: {winner_name}
                     "precinct_total_votes": row['Total Votes Cast'],
                     "results": results,
                     "win_number": np.ceil((row['Total Votes Cast'] / 2) + (abs(row[winner_name] - row[runner_up]) / 2) + 1),
-                    "flip_number": np.ceil((abs(row[winner_name] - row[runner_up]) / 2) + 1)
+                    "flip_number": np.ceil((abs(row[winner_name] - row[runner_up]) / 2) + 1),
+                    "win_gap": abs(row[winner_name] - row[runner_up])
                 }
         precincts.append(precinct)
+    district_results = []
+    for i in range(3, 3+(len(df.columns)-6) + 1):
+        candidate = {
+            "candidate_name": cols[i],
+            "votes": df.loc[df.shape[0]-1, cols[i]]
+        }
+        district_results.append(candidate)
     if len(df.columns) == 6:
         district = {
             "district_name": f"{district_number}",
             "district_total_votes": pd.to_numeric(df.loc[(df.shape[0] - 1), "Total Votes Cast"], downcast='integer'),
             "district_win_number": np.ceil((df.loc[(df.shape[0] - 1), "Total Votes Cast"] / 2) + 1),
             "district_flip_number": 0,
+            "district_win_gap": 0,
+            "district_results":district_results,
             "precincts": precincts
         }
     else:
@@ -160,6 +177,8 @@ Winner: {winner_name}
             "district_total_votes": pd.to_numeric(df.loc[(df.shape[0] - 1), "Total Votes Cast"], downcast='integer'),
             "district_win_number": np.ceil((df.loc[(df.shape[0] - 1), "Total Votes Cast"] / 2) + (abs(df.loc[(df.shape[0] - 1), winner_name] - df.loc[(df.shape[0] - 1), runner_up]) / 2) + 1),
             "district_flip_number": np.ceil((abs(df.loc[(df.shape[0] - 1), winner_name] - df.loc[(df.shape[0] - 1), runner_up]) / 2) + 1),
+            "district_win_gap": abs(df.loc[(df.shape[0] - 1), winner_name] - df.loc[(df.shape[0] - 1), runner_up]),
+            "district_results":district_results,
             "precincts": precincts
         }
 
@@ -195,10 +214,10 @@ def get_election_years_in_window(election: dict, current_year: int, lookback_yea
     
     if pattern == 'even':
         # Even-numbered years
-        elections_in_window = [y for y in years if y % 2 == 0]
+        elections_in_window = [y for y in years if y % cycle == 0]
     elif pattern == 'odd':
         # Odd-numbered years
-        elections_in_window = [y for y in years if y % 2 == 1]
+        elections_in_window = [y for y in years if y % cycle == 1]
     elif pattern == 'even_biennial':
         # Senate: every 2 years in even years
         elections_in_window = [y for y in years if y % 2 == 0]
@@ -254,10 +273,10 @@ def process_tavily_response(results, OFFICE_POSITION, YEAR, is_statewide):
             logger.info(filename)
             logger.info("\x1b[31mFilename not found\x1b[0m")
             continue
-        district_number, election_type = content_extraction(filename=filename, office_position=OFFICE_POSITION, is_statewide=is_statewide)
+        district_number, election_type = content_extraction(filename=filename, is_statewide=is_statewide)
         if district_number == None and election_type == None:
             logger.info(f"\x1b[31mCould not extract district number/election type from filename {filename}\x1b[0m")
-            continue
+            sys.exit(0)
 
         district = data_population(year=YEAR,
                         df=df,
@@ -279,7 +298,7 @@ def main():
     # OFFICE_POSITION = 'U.S._House'
     # OFFICE_POSITION = 'Governor'
     current_year = date.today().year
-    with open("election_cycle_testing.json", "r") as f:
+    with open("election_cycles.json", "r") as f:
         elections = json.loads(f.read())
 
     for election in elections['elections']: 
@@ -304,8 +323,8 @@ def main():
                                                      delimiter='/')
                 election_years = [int(y.replace('/', '').replace(OFFICE_POSITION, '')) for y in election_years]
                 # logger.debug(election_years)
-                if YEAR in election_years:
-                    continue
+                # if YEAR in election_years:
+                #     continue
 
             url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_ID}"
             instructions="Get only the election data at the precinct level as a downloadable csv"
