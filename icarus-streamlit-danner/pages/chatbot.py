@@ -22,8 +22,17 @@ st.set_page_config(
 # Layout, spacing, and login-top-right CSS (unchanged)
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
+    header {visibility: visible !important;}
+    header[data-testid="stHeader"] {
+        background-color: transparent;
+    }
+    header[data-testid="stHeader"] > div:first-child {
+        background-color: transparent;
+    }
+    /* Hide only the "Deploy" and other header buttons */
+    header[data-testid="stHeader"] button[kind="header"] {
+        display: none;
+    }
     footer {visibility: hidden;}
     .block-container {
         padding-top: 1rem !important;

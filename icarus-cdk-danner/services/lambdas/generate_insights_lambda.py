@@ -266,8 +266,18 @@ def prepare_user_context(questionnaire: dict) -> str:
     
     context = []
     for key, value in answers.items():
-        format = f"Question: {key}\nAnswer: {value}"
-        context.append(format)
+        if key == "fullName":
+            format = f'Full name of candidate: {value}'
+            context.append(format)
+        elif key == 'district_name':
+            format = f'District candidate is running for: {value}'
+            context.append(format)
+        elif key == 'office_position':
+            format = f'Office candidate is running for: {value}'
+            context.append(format)
+        else:
+            format = f"Question: {key}\nAnswer: {value}"
+            context.append(format)
 
     context = "\n".join(context)
     

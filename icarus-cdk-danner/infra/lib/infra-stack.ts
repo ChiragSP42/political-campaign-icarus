@@ -9,6 +9,7 @@ import * as aws_apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
+dotenv.config();
 
 export class IcarusDannerInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {

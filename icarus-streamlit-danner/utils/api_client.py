@@ -100,7 +100,7 @@ class APIClient:
             }
             headers = {"Content-Type": "application/json"}
             
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response = requests.post(url, json=payload, headers=headers, timeout=100)
             response.raise_for_status()
             result = response.json()
         

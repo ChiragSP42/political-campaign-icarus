@@ -10,7 +10,7 @@ import boto3
 import time
 from utils.session_manager import SessionManager
 from utils.api_client import APIClient
-from utils.constants import OFFICE_OPTIONS
+from utils.constants import OFFICE_OPTIONS, ELECTION_CYCLE
 
 st.set_page_config(
     page_title="Project Icarus - Questionnaire",
@@ -106,11 +106,22 @@ def main():
                     if st.session_state.form_data.get("office") in OFFICE_OPTIONS else 0
                 )
             
-            district = st.text_input(
-                "District Running In (eg. District_41) *",
-                key="district",
-                value=st.session_state.form_data.get("district", "")
-            )
+            elections = ELECTION_CYCLE['elections']
+            election = elections.get(office, {})
+            if election.get('is_statewide') == True:
+                district = st.selectbox(
+                    "District Running In (or Statewide) *",
+                    ['Statewide'],
+                    key="statewide",
+                    index=0
+                )
+            else:
+                district = st.selectbox(
+                    "District Running In (or Statewide) *",
+                    [f"District_{i}" for i in range(1, 101)],
+                    key='district',
+                    index=0
+                )
             
             # Save to session
             st.session_state.form_data["fullName"] = full_name
