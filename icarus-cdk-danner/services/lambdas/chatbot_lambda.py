@@ -115,12 +115,13 @@ def lambda_handler(event, context):
         print("Filling chatbot prompt")
         chatbot_prompt = chatbot_prompt.replace("{candidate_questionnaire}", questionnaire_text)
         chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights)
+        chatbot_prompt = chatbot_prompt.replace("{user_query}", user_query)
         # chatbot_prompt = chatbot_prompt.replace("{relevant_election_laws}", election_laws)
         # Format query into message format.
         s3_client.put_object(Bucket=S3_GENERATED_INSIGHTS, Key=f'chatbot_prompt.md', Body=chatbot_prompt, ContentType='text/markdown')
         message = {
             'role': 'user',
-            'content': [{'text': user_query}]
+            'content': [{'text': chatbot_prompt}]
         }
 
         messages = conversation_history + [message]
@@ -128,7 +129,6 @@ def lambda_handler(event, context):
         print("Converse call")
         response = bedrock_runtime.converse(
             modelId=MODEL_ID,
-            system=[{'text': chatbot_prompt}],
             messages=messages,
             inferenceConfig={
                 'temperature': 0.3

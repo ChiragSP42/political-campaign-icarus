@@ -46,6 +46,9 @@ def lambda_handler(event, context):
                                 Key=f"{username}/{username}_response.md")
         print("Got response")
         chatbot_response = response['Body'].read().decode('utf-8')
+        response = s3_client.delete_object(Bucket=S3_RESPONSES,
+                                Key=f"{username}/{username}_response.md")
+        print("Deleted chatbot response")
 
         message = {
             'status': 'COMPLETED',

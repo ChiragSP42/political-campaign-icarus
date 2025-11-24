@@ -96,7 +96,7 @@ class APIClient:
             payload = {
                 "email": email,
                 "query": message,
-                "conversational_history": conversation_history
+                "conversation_history": conversation_history
             }
             headers = {"Content-Type": "application/json"}
             

@@ -334,15 +334,18 @@ This process typically takes 1-2 minutes.
                         user_input,
                         chat_history
                     )
+                    # If successfully triggered
                     if response.get("status") == 'COMPLETED':
                         while True:
                             checking = api_client.check_chatbot_response(email=SessionManager.get_user())
+                            # If chatbot generation was successful
                             if checking.get("status") == "COMPLETED":
                                 SessionManager.add_chat_message(role="user", content=user_input)
                                 SessionManager.add_chat_message(
                                     role="assistant",
                                     content=checking.get("message", "No response")
                                 )
+                                # print(SessionManager.get_chat_history())
                                 st.session_state["clear_input"] = True
                                 st.rerun()
                                 break
