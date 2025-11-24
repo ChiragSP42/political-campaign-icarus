@@ -334,14 +334,25 @@ This process typically takes 1-2 minutes.
                         user_input,
                         chat_history
                     )
-                    if response.get("success"):
-                        SessionManager.add_chat_message(role="user", content=user_input)
-                        SessionManager.add_chat_message(
-                            role="assistant",
-                            content=response.get("message", "No response")
-                        )
-                        st.session_state["clear_input"] = True
-                        st.rerun()
+                    if response.get("status") == 'COMPLETED':
+                        while True:
+                            checking = api_client.check_chatbot_response(email=SessionManager.get_user())
+                            if checking.get("status") == "COMPLETED":
+                                SessionManager.add_chat_message(role="user", content=user_input)
+                                SessionManager.add_chat_message(
+                                    role="assistant",
+                                    content=checking.get("message", "No response")
+                                )
+                                st.session_state["clear_input"] = True
+                                st.rerun()
+                                break
+                            elif checking.get("status") == 'FAILED':
+                                SessionManager.add_chat_message(role="user", content=user_input)
+                                SessionManager.add_chat_message(
+                                    role="assistant",
+                                    content="I'm sorry, something went wrong. Try again, the LLM will ignore this message"
+                                )
+                                break
                     else:
                         st.error(f"Error: {response.get('message', 'Unknown error')}")
 

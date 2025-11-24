@@ -68,36 +68,49 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // 2. S3 BUCKETS
     // =====================================================
 
+    // Store election data
     const election_data_bucket = new aws_s3.Bucket(this, 'ElectionDataBucket', {
       bucketName: `icarus-election-data-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
 
+    // Store prompts and 
     const prompt_bucket = new aws_s3.Bucket(this, 'PromptBucket', {
       bucketName: `prompt-bucket-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
 
+    // Store relevant election rules and regulations
     const election_laws = new aws_s3.Bucket(this, 'ElectionLawsBucket', {
       bucketName: `election-laws-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
 
+    // Store filled questionnaires
     const questionnaires = new aws_s3.Bucket(this, 'Questionnaires', {
       bucketName: `icarus-questionnaires-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
 
+    // Store generated insights
     const generated_insights = new aws_s3.Bucket(this, 'GeneratedInsights', {
       bucketName: `generated-insights-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
 
+    // Store chatbot responses
+    const chatbot_responses = new aws_s3.Bucket(this, 'ChatbotResponses', {
+      bucketName: `chatbot-responses-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true
+    })
+
+    // Load local prompt files to prompt-bucket
     new aws_s3_deployment.BucketDeployment(this, 'DeployFiles', {
       sources: [
         aws_s3_deployment.Source.asset(path.join(__dirname, '../../local-files'))
@@ -129,7 +142,8 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       assumedBy: new aws_iam.ServicePrincipal('lambda.amazonaws.com'),
       description: 'Lambda service role to provide access to Bedrock, S3',
       managedPolicies: [
-        aws_iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
+        aws_iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+        aws_iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaRole')
       ],
       inlinePolicies: {
         'icarus-s3-policy': new aws_iam.PolicyDocument({
@@ -224,6 +238,39 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       }
     })
 
+    // Trigger chatbot-lambda
+    const trigger_chatbot_lambda = new aws_lambda.Function(this, 'trigger-chatbot-lambda', {
+      functionName: 'trigger-chatbot-lambda',
+      description: 'Lambda that will start async process of chatbot response',
+      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
+      handler: 'trigger_chatbot.lambda_handler',
+      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
+      ephemeralStorageSize: cdk.Size.mebibytes(1024),
+      role: lambda_role,
+      environment: {
+        CHATBOT_LAMBDA_NAME: chatbot_lambda.functionName
+      }
+    })
+
+    // Check chatbot response
+    const check_chatbot_response_lambda = new aws_lambda.Function(this, 'check-llm-response-lambda', {
+      functionName: 'check-llm-response-lambda',
+      description: 'Check is chatbot-lambda stored response in S3',
+      code: aws_lambda.Code.fromAsset(path.join(__dirname, "../../services/lambdas/")),
+      handler: 'check_LLM_response_lambda.lambda_handler',
+      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
+      role: lambda_role,
+      ephemeralStorageSize: cdk.Size.mebibytes(1024),
+      environment: {
+        S3_RESPONSES: process.env.S3_RESPONSES || 'chatbot-responses'
+      }
+    })
+
+    // Trigger generate-insights-lambda when questionnaire gets populated
     questionnaires.addEventNotification(
       aws_s3.EventType.OBJECT_CREATED_PUT,
       new s3n.LambdaDestination(generate_insights_lambda),
@@ -259,7 +306,8 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // Lambda Integrations (proxy: true avoids circular dependencies)
     const check_questionnaire_integration = new aws_apigateway.LambdaIntegration(check_questionnaire_lambda, { proxy: true })
     const save_questionnaire_integration = new aws_apigateway.LambdaIntegration(save_questionnaire_lambda, { proxy: true })
-    const chatbot_integration = new aws_apigateway.LambdaIntegration(chatbot_lambda, { proxy: true })
+    const chatbot_integration = new aws_apigateway.LambdaIntegration(trigger_chatbot_lambda, { proxy: true })
+    const check_chatbot_response_integration = new aws_apigateway.LambdaIntegration(check_chatbot_response_lambda, {proxy: true})
 
     // API Resources
     const check_resource = api.root.addResource('check-questionnaire')
@@ -270,6 +318,9 @@ export class IcarusDannerInfraStack extends cdk.Stack {
 
     const chatbot_resource = api.root.addResource('chat')
     chatbot_resource.addMethod('POST', chatbot_integration)
+
+    const check_chatbot_resource = api.root.addResource('check-response')
+    check_chatbot_resource.addMethod('GET', check_chatbot_response_integration)
 
     // =====================================================
     // 6. OUTPUTS

@@ -59,6 +59,8 @@ bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 S3_GENERATED_INSIGHTS = os.getenv("S3_GENERATED_INSIGHTS", 'generated-insights')
 S3_GENERATED_INSIGHTS = f"{S3_GENERATED_INSIGHTS}-{ACCOUNT_ID}"
+S3_RESPONSES = os.getenv("S3_RESPONSES", 'chatbot-responses')
+S3_RESPONSES = f"{S3_RESPONSES}-{ACCOUNT_ID}"
 S3_QUESTIONNAIRES = os.getenv("S3_QUESTIONNAIRES", 'icarus-questionnaires')
 S3_QUESTIONNAIRES = f"{S3_QUESTIONNAIRES}-{ACCOUNT_ID}"
 CHATBOT_PROMPT = os.getenv("CHATBOT_PROMPT", 'campaign_advisor_prompt.md')
@@ -74,15 +76,16 @@ def lambda_handler(event, context):
 
     The event format: {'email': The email ID, 'answers': The questionnaire answers}
     """
-    
+    print("Event", event)
+    print(type(event))
     try:
         # Parse the request body
-        body = json.loads(event.get('body', {}))
+        body = event.get('body', {})
         print(f"Body: {body}")
         user_query = body.get("query", "")
         conversation_history = body.get("conversation_history", [])
         email = body.get("email", "")
-        email = email.split("@")[0]
+        username = email.split("@")[0]
 
         # Get system prompt for chatbot
         print("Getting system prompt for chatbot")
@@ -96,13 +99,13 @@ def lambda_handler(event, context):
         # Get insights for candidate
         print("Getting insights for candidate")
         response = s3_client.get_object(Bucket=S3_GENERATED_INSIGHTS,
-                                        Key=f'{email}/{email}_insights.md')
+                                        Key=f'{username}/{username}_insights.md')
         user_insights = response['Body'].read().decode('utf-8')
 
         # Get questionnaire for candidate
         print("Getting questionnaire for candidate")
         response = s3_client.get_object(Bucket=S3_QUESTIONNAIRES,
-                                        Key=f"{email}/{email}_questionnaire.json")
+                                        Key=f"{username}/{username}_questionnaire.json")
         questionnaire = json.loads(response['Body'].read())
 
         questionnaire_text = prepare_user_context(questionnaire=questionnaire)
@@ -133,6 +136,7 @@ def lambda_handler(event, context):
         )
 
         answer = response['output']['message']['content'][0]['text']
+        s3_client.put_object(Bucket=S3_RESPONSES, Key=f'{username}/{username}_response.md', Body=answer, ContentType='text/markdown')
         print("LLM generation successful")
         return {
             'statusCode': 200,

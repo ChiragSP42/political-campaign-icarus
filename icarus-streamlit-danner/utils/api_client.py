@@ -109,18 +109,30 @@ class APIClient:
         except Exception as e:
             logger.error(f"Error sending requests.post() to chatbot: {e}")
             return {
-                "success": False,
+                "status": "FAILED",
                 "message": f"Error: {str(e)}"
             }
     
-    def health_check(self) -> bool:
-        """Check if API is available"""
-        try:
-            # Use check-questionnaire as health check (minimal operation)
-            response = requests.get(
-                f"{self.api_endpoint}/check-questionnaire?email=test@test.com",
-                timeout=5
-            )
-            return response.status_code in [200, 400]  # 400 is ok (missing param)
-        except:
-            return False
+    def check_chatbot_response(self,
+                               email: Optional[str]) -> Dict:
+        """
+        Check if chatbot has generated response and store in S3
+
+        Args:
+            email (Optional[str]): Email of user which is used for logical separation of files
+
+        Returns:
+            str: Returns the chatbot text
+        """
+
+        url = f"{self.api_endpoint}/check-response"
+        payload={
+            "email": email
+        }
+        headers = {"Content-Type": "application/json"}
+
+        response = requests.get(url, params=payload, headers=headers, timeout=100)
+        response.raise_for_status()
+        result = response.json()
+
+        return result
