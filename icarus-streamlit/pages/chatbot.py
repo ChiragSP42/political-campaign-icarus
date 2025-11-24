@@ -240,10 +240,10 @@ def main():
         st.session_state["clear_input"] = False
 
     # Columns: chat, insights
-    col_chat, col_insights = st.columns([1, 2])
+    col_chat, col_insights = st.columns([2, 1])
 
     # Insights (right column)
-    with col_insights:
+    with col_chat:
         st.subheader("📊 Campaign Insights")
         if insights_content:
             insights_html = create_scrollable_html(insights_content, height_px=500, bg_color="#fffef9")
@@ -276,7 +276,7 @@ This process typically takes 1-2 minutes.
             st.rerun()
 
     # Chat (left column)
-    with col_chat:
+    with col_insights:
         st.subheader("💬 Chat")
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = []
