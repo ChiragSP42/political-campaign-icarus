@@ -249,7 +249,7 @@ def call_chatbot_logic(bedrock_runtime: Any,
         return answer
     except Exception as e:
         print(f"Error getting final response from Bedrock: {str(e)}")
-        return ""
+        return "Too data to handle, could not generate insights"
     
 def prepare_user_context(questionnaire: dict) -> str:
     """

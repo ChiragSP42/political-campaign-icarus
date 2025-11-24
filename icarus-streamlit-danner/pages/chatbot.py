@@ -290,7 +290,8 @@ This process typically takes 1-2 minutes.
         # Input area, tightly below the chat iframe
         # -- Text input
         user_input = st.text_area(
-            "",
+            label="Chat here",
+            label_visibility='hidden',
             placeholder="e.g., How should I focus my door-knocking efforts?",
             height=80,
             key="user_input"
@@ -349,6 +350,11 @@ This process typically takes 1-2 minutes.
             st.session_state.chat_messages = []
             st.session_state["clear_input"] = True
             st.rerun()
+
+    if st.button("Change questionnaire", use_container_width=True, type='primary'):
+        st.session_state.questionnaire_step = 1
+        st.switch_page("pages/questionnaire.py")
+        st.rerun()
 
 if __name__ == "__main__":
     main()

@@ -24,6 +24,10 @@ if not SessionManager.is_authenticated():
     st.error("Please sign in first")
     st.stop()
 
+if "questionnaire_step" in st.session_state:
+    if st.session_state.questionnaire_step == 1:
+        st.session_state.form_data = {}
+
 # Initialize S3 client
 s3_client = boto3.client('s3')
 sts_client = boto3.client("sts")
@@ -74,6 +78,7 @@ def delete_old_insights(email):
         print(f"Error checking insights file: {e}")
         return False, None
 
+
 def main():
     st.title("📋 Candidate Intake Questionnaire")
     st.write("Help us understand your campaign better")
@@ -92,7 +97,8 @@ def main():
             
             with col1:
                 full_name = st.text_input(
-                    "Full Name *",
+                    label_visibility='hidden',
+                    label="Full Name *",
                     key="full_name",
                     value=st.session_state.form_data.get("fullName", "")
                 )
@@ -369,6 +375,7 @@ def main():
             if insights_ready:
                 progress_placeholder.progress(100)
                 status_placeholder.success("✅ Insights generated successfully!")
+                st.session_state.questionnaire_step = 1
                 st.balloons()
                 time.sleep(1)
                 
