@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useRequireAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import { OFFICE_OPTIONS, STATEWIDE_OFFICES, BACKGROUND_QUESTIONS, ARCHETYPE_QUESTIONS } from "@/lib/constants";
 import { ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
 
 const TOTAL_STEPS = 3;
 
 export default function QuestionnairePage() {
-  const auth = useRequireAuth();
+  const auth = useAuth();
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);

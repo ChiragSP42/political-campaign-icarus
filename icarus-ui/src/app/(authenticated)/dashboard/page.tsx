@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { useRequireAuth } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
 import {
-  Send, Trash2, Download, RefreshCw, LogOut, FileText, MessageSquare, Loader2, ClipboardEdit,
+  Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -14,8 +13,7 @@ interface ChatMsg {
 }
 
 export default function DashboardPage() {
-  const auth = useRequireAuth();
-  const router = useRouter();
+  const auth = useAuth();
   const [insights, setInsights] = useState<string | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(true);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -90,27 +88,11 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-[var(--border)] px-6 py-3 flex items-center justify-between shrink-0">
-        <h1 className="text-xl font-bold text-[var(--primary)]">🎭 Campaign Strategist</h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-[var(--muted)]">{auth.email}</span>
-          <button onClick={() => router.push("/questionnaire")}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-[var(--primary)] hover:bg-indigo-50 rounded-lg transition">
-            <ClipboardEdit size={14} /> Edit Questionnaire
-          </button>
-          <button onClick={() => { auth.logout(); router.push("/auth"); }}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-[var(--danger)] hover:bg-red-50 rounded-lg transition">
-            <LogOut size={14} /> Logout
-          </button>
-        </div>
-      </header>
-
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+    <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
+      {/* Main content — stacks vertically on mobile, side-by-side on desktop */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Insights panel */}
-        <div className="w-1/2 border-r border-[var(--border)] flex flex-col bg-white">
+        <div className="w-full md:w-1/2 border-b md:border-b-0 md:border-r border-[var(--border)] flex flex-col bg-white">
           <div className="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
             <h2 className="font-semibold flex items-center gap-2"><FileText size={18} /> Campaign Insights</h2>
             <div className="flex gap-2">
@@ -149,7 +131,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Chat panel */}
-        <div className="w-1/2 flex flex-col bg-[#fafafa]">
+        <div className="w-full md:w-1/2 flex flex-col bg-[#fafafa]">
           <div className="px-5 py-3 border-b border-[var(--border)] bg-white flex items-center justify-between shrink-0">
             <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
             <button onClick={() => setMessages([])}
