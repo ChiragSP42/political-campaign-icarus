@@ -8,8 +8,8 @@ export async function POST(req: NextRequest) {
     const client = new CognitoIdentityProviderClient({
       region: process.env.COGNITO_REGION || "us-east-1",
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID_CUSTOM!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_CUSTOM!,
+        accessKeyId: process.env.CUSTOM_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.CUSTOM_SECRET_ACCESS_KEY!,
       },
     });
 

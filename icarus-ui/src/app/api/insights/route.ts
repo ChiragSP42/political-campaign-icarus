@@ -9,10 +9,10 @@ export async function GET(req: NextRequest) {
     const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts");
 
     const creds = {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID_CUSTOM!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY_CUSTOM!,
+      accessKeyId: process.env.CUSTOM_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.CUSTOM_SECRET_ACCESS_KEY!,
     };
-    const region = process.env.AWS_REGION || "us-east-1";
+    const region = process.env.CUSTOM_REGION || "us-east-1";
 
     const sts = new STSClient({ region, credentials: creds });
     const identity = await sts.send(new GetCallerIdentityCommand({}));
