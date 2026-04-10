@@ -39,3 +39,6 @@ cdk.out
 
 # Misc
 project-icarus
+
+# Files
+election_cycles.json
