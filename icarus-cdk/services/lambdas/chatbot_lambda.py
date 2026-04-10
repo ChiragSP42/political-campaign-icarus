@@ -2,12 +2,13 @@
 Lambda Function: chatbot
 
 Purpose:
-  Interactive chatbot backend
+  Interactive chatbot backend. Loads conversation history from DynamoDB
+  and persists assistant responses.
   
 Input Body (JSON):
 {
     "query": The user's query,
-    "coversational_history": The user's present conversational history,
+    "chatId": The chat session ID (UUID),
     "email": The user's email ID for logically seperated stuff
 }
   
@@ -38,7 +39,7 @@ from typing import (
     Set
 )
 from botocore.config import Config
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from botocore.exceptions import ClientError
 
 # Initialize Boto3 Clients
@@ -54,6 +55,7 @@ bedrock_runtime = boto3.client("bedrock-runtime", config=config)
 s3_client = boto3.client("s3")
 sts_client = boto3.client("sts")
 bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
+dynamodb = boto3.resource("dynamodb")
 
 # Environment variables
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
@@ -68,6 +70,10 @@ PROMPT_BUCKET = os.getenv("PROMPT_BUCKET", 'prompt-bucket')
 PROMPT_BUCKET = f"{PROMPT_BUCKET}-{ACCOUNT_ID}"
 MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
 KB_ID = os.environ.get('KB_ID', '')
+CHAT_HISTORY_TABLE = os.getenv("CHAT_HISTORY_TABLE", "")
+
+# DynamoDB table reference
+chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE else None
 
 
 def lambda_handler(event, context):
@@ -83,7 +89,7 @@ def lambda_handler(event, context):
         body = event.get('body', {})
         print(f"Body: {body}")
         user_query = body.get("query", "")
-        conversation_history = body.get("conversation_history", [])
+        chat_id = body.get("chatId", "")
         email = body.get("email", "")
         username = email.split("@")[0]
 
@@ -124,6 +130,10 @@ def lambda_handler(event, context):
             'content': [{'text': chatbot_prompt}]
         }
 
+        # Load conversation history from DynamoDB instead of payload
+        print(f"Loading conversation history from DynamoDB for chatId={chat_id}")
+        conversation_history = load_conversation_history(chat_id)
+
         messages = conversation_history + [message]
 
         print("Converse call")
@@ -136,7 +146,13 @@ def lambda_handler(event, context):
         )
 
         answer = response['output']['message']['content'][0]['text']
-        s3_client.put_object(Bucket=S3_RESPONSES, Key=f'{username}/{username}_response.md', Body=answer, ContentType='text/markdown')
+
+        # Write assistant message to DynamoDB
+        print(f"Writing assistant message to DynamoDB for chatId={chat_id}")
+        write_assistant_message(chat_id=chat_id, user_id=email, content=answer)
+
+        # Use chatId-based S3 key for response
+        s3_client.put_object(Bucket=S3_RESPONSES, Key=f'{username}/{chat_id}_response.md', Body=answer, ContentType='text/markdown')
         print("LLM generation successful")
         return {
             'statusCode': 200,
@@ -187,6 +203,56 @@ def retrieve_laws(user_query: str) -> str:
         return "\n\n".join(results)
     else:
         return ''
+
+
+def load_conversation_history(chat_id: str) -> list:
+    """
+    Query DynamoDB for all messages with the given chatId,
+    sorted by timestamp ascending, excluding META records.
+    Returns messages formatted for Bedrock converse API.
+    """
+    if not chat_history_table or not chat_id:
+        return []
+
+    from boto3.dynamodb.conditions import Key
+
+    response = chat_history_table.query(
+        KeyConditionExpression=Key("chatId").eq(chat_id),
+        ScanIndexForward=True,  # ascending by sort key (timestamp)
+    )
+
+    messages = []
+    for item in response.get("Items", []):
+        # Exclude META records
+        if item.get("timestamp") == "META":
+            continue
+        role = item.get("role", "user")
+        content = item.get("content", "")
+        messages.append({
+            "role": role,
+            "content": [{"text": content}],
+        })
+
+    return messages
+
+
+def write_assistant_message(chat_id: str, user_id: str, content: str) -> None:
+    """
+    Write the assistant response message to DynamoDB.
+    """
+    if not chat_history_table:
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    chat_history_table.put_item(
+        Item={
+            "chatId": chat_id,
+            "timestamp": now,
+            "userId": user_id,
+            "role": "assistant",
+            "content": content,
+        }
+    )
         
 def prepare_user_context(questionnaire: dict) -> str:
     """

@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import {
   Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2,
 } from "lucide-react";
+import ChatSidebar, { ChatSession } from "@/components/chat/ChatSidebar";
 
 interface ChatMsg {
   role: "user" | "assistant";
@@ -19,6 +20,8 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const loadInsights = useCallback(async () => {
@@ -36,6 +39,28 @@ export default function DashboardPage() {
   useEffect(() => { loadInsights(); }, [loadInsights]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  async function onSelectSession(selectedChatId: string) {
+    try {
+      const res = await fetch(`/api/chat/sessions/messages?chatId=${encodeURIComponent(selectedChatId)}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const converted: ChatMsg[] = data.map((m: { role: "user" | "assistant"; content: string }) => ({
+          role: m.role,
+          content: [{ text: m.content }],
+        }));
+        setMessages(converted);
+        setChatId(selectedChatId);
+      }
+    } catch {
+      // keep current state on error
+    }
+  }
+
+  function onNewChat() {
+    setMessages([]);
+    setChatId(null);
+  }
+
   async function sendMessage() {
     if (!input.trim() || sending) return;
     const userMsg: ChatMsg = { role: "user", content: [{ text: input }] };
@@ -44,19 +69,29 @@ export default function DashboardPage() {
     setInput("");
     setSending(true);
 
+    const isNewSession = chatId === null;
+
     try {
       const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch("/api/chat/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: auth.email, query, conversation_history: history }),
+        body: JSON.stringify({ email: auth.email, query, conversation_history: history, chatId }),
       });
       const data = await res.json();
+
+      // Store the returned chatId
+      const returnedChatId = data.chatId || chatId;
+      if (data.chatId) {
+        setChatId(data.chatId);
+      }
 
       if (data.status === "COMPLETED") {
         // Poll for response
         while (true) {
-          const checkRes = await fetch(`/api/chat/check?email=${encodeURIComponent(auth.email!)}`);
+          const checkRes = await fetch(
+            `/api/chat/check?email=${encodeURIComponent(auth.email!)}&chatId=${encodeURIComponent(returnedChatId || "")}`
+          );
           const checkData = await checkRes.json();
           if (checkData.status === "COMPLETED") {
             setMessages((m) => [...m, { role: "assistant", content: [{ text: checkData.message || "No response" }] }]);
@@ -69,6 +104,19 @@ export default function DashboardPage() {
         }
       } else {
         setMessages((m) => [...m, { role: "assistant", content: [{ text: data.message || "Error occurred" }] }]);
+      }
+
+      // Refresh sessions list after a new session's first message completes
+      if (isNewSession && auth.email) {
+        try {
+          const sessRes = await fetch(`/api/chat/sessions?email=${encodeURIComponent(auth.email)}`);
+          const sessData = await sessRes.json();
+          if (Array.isArray(sessData)) {
+            setSessions(sessData);
+          }
+        } catch {
+          // ignore refresh failure
+        }
       }
     } catch (err: any) {
       setMessages((m) => [...m, { role: "assistant", content: [{ text: `Error: ${err.message}` }] }]);
@@ -130,59 +178,74 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Chat panel */}
-        <div className="w-full md:w-1/2 flex flex-col bg-[#fafafa]">
-          <div className="px-5 py-3 border-b border-[var(--border)] bg-white flex items-center justify-between shrink-0">
-            <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
-            <button onClick={() => setMessages([])}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--danger)] hover:bg-red-50 rounded-lg transition">
-              <Trash2 size={14} /> Clear
-            </button>
+        {/* Chat half — sidebar + chat panel */}
+        <div className="w-full md:w-1/2 flex flex-row">
+          {/* Chat Sidebar */}
+          <div className="hidden md:block" style={{ width: "240px", flexShrink: 0 }}>
+            <ChatSidebar
+              email={auth.email || ""}
+              activeChatId={chatId}
+              onSelectSession={onSelectSession}
+              onNewChat={onNewChat}
+              sessions={sessions}
+              setSessions={setSessions}
+            />
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {messages.length === 0 && (
-              <div className="flex items-center justify-center h-full text-[var(--muted)] text-sm">
-                Start a conversation about your campaign strategy.
-              </div>
-            )}
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed
-                  ${msg.role === "user"
-                    ? "bg-[var(--primary)] text-white rounded-br-md"
-                    : "bg-white border border-[var(--border)] rounded-bl-md"}`}>
-                  {msg.role === "assistant" ? (
-                    <div className="prose text-sm">
-                      <ReactMarkdown>{msg.content[0].text}</ReactMarkdown>
-                    </div>
-                  ) : msg.content[0].text}
-                </div>
-              </div>
-            ))}
-            {sending && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-[var(--border)] rounded-2xl rounded-bl-md px-4 py-3">
-                  <Loader2 size={18} className="animate-spin text-[var(--primary)]" />
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Input */}
-          <div className="p-4 bg-white border-t border-[var(--border)] shrink-0">
-            <div className="flex gap-2">
-              <textarea value={input} onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder="e.g., How should I focus my door-knocking efforts?"
-                rows={2}
-                className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-xl resize-none focus:ring-2 focus:ring-[var(--primary)] outline-none text-sm" />
-              <button onClick={sendMessage} disabled={sending || !input.trim()}
-                className="px-4 bg-[var(--accent)] hover:bg-green-600 text-white rounded-xl transition disabled:opacity-40 self-end">
-                <Send size={18} />
+          {/* Chat panel */}
+          <div className="flex-1 flex flex-col bg-[#fafafa] min-w-0">
+            <div className="px-5 py-3 border-b border-[var(--border)] bg-white flex items-center justify-between shrink-0">
+              <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
+              <button onClick={() => { setMessages([]); setChatId(null); }}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--danger)] hover:bg-red-50 rounded-lg transition">
+                <Trash2 size={14} /> Clear
               </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {messages.length === 0 && (
+                <div className="flex items-center justify-center h-full text-[var(--muted)] text-sm">
+                  Start a conversation about your campaign strategy.
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed
+                    ${msg.role === "user"
+                      ? "bg-[var(--primary)] text-white rounded-br-md"
+                      : "bg-white border border-[var(--border)] rounded-bl-md"}`}>
+                    {msg.role === "assistant" ? (
+                      <div className="prose text-sm">
+                        <ReactMarkdown>{msg.content[0].text}</ReactMarkdown>
+                      </div>
+                    ) : msg.content[0].text}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-[var(--border)] rounded-2xl rounded-bl-md px-4 py-3">
+                    <Loader2 size={18} className="animate-spin text-[var(--primary)]" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-4 bg-white border-t border-[var(--border)] shrink-0">
+              <div className="flex gap-2">
+                <textarea value={input} onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder="e.g., How should I focus my door-knocking efforts?"
+                  rows={2}
+                  className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-xl resize-none focus:ring-2 focus:ring-[var(--primary)] outline-none text-sm" />
+                <button onClick={sendMessage} disabled={sending || !input.trim()}
+                  className="px-4 bg-[var(--accent)] hover:bg-green-600 text-white rounded-xl transition disabled:opacity-40 self-end">
+                  <Send size={18} />
+                </button>
+              </div>
             </div>
           </div>
         </div>

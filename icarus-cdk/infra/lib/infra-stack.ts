@@ -9,6 +9,7 @@ import * as aws_apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
+import * as aws_dynamodb from 'aws-cdk-lib/aws-dynamodb';
 dotenv.config();
 
 export class IcarusDannerInfraStack extends cdk.Stack {
@@ -162,6 +163,26 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     bedrock_policy.attachToRole(lambda_role)
 
     // =====================================================
+    // 3b. DYNAMODB TABLE FOR CHAT HISTORY
+    // =====================================================
+
+    const chatHistoryTable = new aws_dynamodb.Table(this, 'ChatHistoryTable', {
+      tableName: `icarus-chat-history-${this.account}`,
+      partitionKey: { name: 'chatId', type: aws_dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: aws_dynamodb.AttributeType.STRING },
+      billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    chatHistoryTable.addGlobalSecondaryIndex({
+      indexName: 'userId-index',
+      partitionKey: { name: 'userId', type: aws_dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: aws_dynamodb.AttributeType.STRING },
+    })
+
+    chatHistoryTable.grantReadWriteData(lambda_role)
+
+    // =====================================================
     // 4. LAMBDA FUNCTIONS
     // =====================================================
 
@@ -213,6 +234,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         PROMPT_BUCKET: process.env.PROMPT_BUCKET || 'prompt-bucket',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
+        CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
 
@@ -250,7 +272,8 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       role: lambda_role,
       environment: {
-        CHATBOT_LAMBDA_NAME: chatbot_lambda.functionName
+        CHATBOT_LAMBDA_NAME: chatbot_lambda.functionName,
+        CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
 
@@ -266,7 +289,8 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       role: lambda_role,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       environment: {
-        S3_RESPONSES: process.env.S3_RESPONSES || 'chatbot-responses'
+        S3_RESPONSES: process.env.S3_RESPONSES || 'chatbot-responses',
+        CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
 
@@ -275,6 +299,21 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       aws_s3.EventType.OBJECT_CREATED_PUT,
       new s3n.LambdaDestination(generate_insights_lambda),
     );
+
+    // Session manager lambda
+    const session_manager_lambda = new aws_lambda.Function(this, 'session-manager-lambda', {
+      functionName: 'session-manager-lambda',
+      description: 'Manages chat session CRUD operations',
+      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
+      handler: 'session_manager_lambda.lambda_handler',
+      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      timeout: cdk.Duration.minutes(15),
+      memorySize: 1024,
+      role: lambda_role,
+      environment: {
+        CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
+      }
+    })
 
     // =====================================================
     // 5. API GATEWAY
@@ -321,6 +360,16 @@ export class IcarusDannerInfraStack extends cdk.Stack {
 
     const check_chatbot_resource = api.root.addResource('check-response')
     check_chatbot_resource.addMethod('GET', check_chatbot_response_integration)
+
+    // Session management routes
+    const session_manager_integration = new aws_apigateway.LambdaIntegration(session_manager_lambda, { proxy: true })
+
+    const sessions_resource = api.root.addResource('sessions')
+    sessions_resource.addMethod('GET', session_manager_integration)
+    sessions_resource.addMethod('DELETE', session_manager_integration)
+
+    const sessions_messages_resource = sessions_resource.addResource('messages')
+    sessions_messages_resource.addMethod('GET', session_manager_integration)
 
     // =====================================================
     // 6. OUTPUTS

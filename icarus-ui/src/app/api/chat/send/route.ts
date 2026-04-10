@@ -4,11 +4,11 @@ const API = process.env.API_ENDPOINT!;
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, query, conversation_history } = await req.json();
+    const { email, query, conversation_history, chatId } = await req.json();
     const res = await fetch(`${API}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, query, conversation_history }),
+      body: JSON.stringify({ email, query, conversation_history, chatId }),
       signal: AbortSignal.timeout(100000),
     });
     const data = await res.json();

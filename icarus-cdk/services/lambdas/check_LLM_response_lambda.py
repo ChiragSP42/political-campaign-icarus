@@ -30,6 +30,7 @@ def lambda_handler(event, context):
         print(f"Body: {body}")
         email = body.get("email", "")
         username = email.split("@")[0]
+        chat_id = body.get("chatId", "")
     except Exception as e:
         print("Failed to load body from events")
         print(e)
@@ -40,14 +41,22 @@ def lambda_handler(event, context):
         }
         return error_response(400, message)
     
+    if not chat_id:
+        message = {
+            'status': "FAILED",
+            'message': "chatId is required"
+        }
+        return error_response(400, message)
+    
     print("Starting to check if response has been generated...")
+    s3_key = f"{username}/{chat_id}_response.md"
     try:
         response = s3_client.get_object(Bucket=S3_RESPONSES,
-                                Key=f"{username}/{username}_response.md")
+                                Key=s3_key)
         print("Got response")
         chatbot_response = response['Body'].read().decode('utf-8')
         response = s3_client.delete_object(Bucket=S3_RESPONSES,
-                                Key=f"{username}/{username}_response.md")
+                                Key=s3_key)
         print("Deleted chatbot response")
 
         message = {
