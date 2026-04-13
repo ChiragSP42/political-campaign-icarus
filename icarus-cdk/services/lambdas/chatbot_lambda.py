@@ -89,8 +89,6 @@ def lambda_handler(event, context):
         body = event.get('body', {})
         print(f"Body: {body}")
         user_query = body.get("query", "")
-        print(user_query)
-        print(type(user_query))
         chat_id = body.get("chatId", "")
         email = body.get("email", "")
         username = email.split("@")[0]
