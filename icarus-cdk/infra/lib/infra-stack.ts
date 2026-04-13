@@ -238,13 +238,13 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       role: lambda_role,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       environment: {
-        S3_GENERATED_INSIGHTS: process.env.S3_GENERATED_INSIGHTS || 'generated-insights',
-        S3_QUESTIONNAIRES: process.env.S3_QUESTIONNAIRES || 'icarus-questionnaires',
         CHATBOT_PROMPT: process.env.CHATBOT_PROMPT || 'campaign_advisor_prompt.md',
         PROMPT_BUCKET: process.env.PROMPT_BUCKET || 'prompt-bucket',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
         CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
+        MAIN_TABLE_NAME: mainTable.tableName,
+        QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })
 
