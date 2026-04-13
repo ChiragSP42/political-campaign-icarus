@@ -84,12 +84,13 @@ def lambda_handler(event, context):
     The event format: {'email': The email ID, 'answers': The questionnaire answers}
     """
     print("Event", event)
-    print(type(event))
     try:
         # Parse the request body
         body = event.get('body', {})
         print(f"Body: {body}")
         user_query = body.get("query", "")
+        print(user_query)
+        print(type(user_query))
         chat_id = body.get("chatId", "")
         email = body.get("email", "")
         username = email.split("@")[0]
