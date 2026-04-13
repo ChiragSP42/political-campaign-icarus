@@ -4,8 +4,9 @@ name: Deploy CDK to AWS
 on:
   push:
     branches:
-      - main
-      - feature/chat-bugs
+      - winflip
+      - winflip-dev
+      - feature/ddb-migration
 
 # 2. These permissions are required for OIDC to generate the temporary token
 permissions:
