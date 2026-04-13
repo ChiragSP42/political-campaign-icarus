@@ -99,7 +99,7 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-[var(--primary)] mb-2">🎭 Project Icarus</h1>
+          <h1 className="text-4xl font-bold text-[var(--primary)] mb-2">🗳️ WinFlip</h1>
           <p className="text-[var(--muted)]">Campaign Strategy AI</p>
         </div>
 

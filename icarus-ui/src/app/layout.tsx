@@ -3,7 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 
 export const metadata: Metadata = {
-  title: "Project Icarus",
+  title: "WinFlip",
   description: "Campaign Strategy AI",
 };
 

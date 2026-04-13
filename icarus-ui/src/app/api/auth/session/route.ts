@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
-  const accessToken = req.cookies.get("icarus_access_token")?.value;
-  const email = req.cookies.get("icarus_email")?.value;
+  const accessToken = req.cookies.get("winflip_access_token")?.value;
+  const email = req.cookies.get("winflip_email")?.value;
 
   if (!accessToken || !email) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
@@ -46,9 +46,9 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     // Token is expired or invalid — clear cookies
     const res = NextResponse.json({ authenticated: false }, { status: 401 });
-    res.cookies.delete("icarus_access_token");
-    res.cookies.delete("icarus_id_token");
-    res.cookies.delete("icarus_email");
+    res.cookies.delete("winflip_access_token");
+    res.cookies.delete("winflip_id_token");
+    res.cookies.delete("winflip_email");
     return res;
   }
 }

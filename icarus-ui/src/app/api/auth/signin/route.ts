@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     // Set tokens in httpOnly cookies
     const res = NextResponse.json({ success: true, email, questionnaireCompleted: hasInsights });
 
-    res.cookies.set("icarus_access_token", accessToken, {
+    res.cookies.set("winflip_access_token", accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       maxAge: expiresIn,
     });
 
-    res.cookies.set("icarus_id_token", idToken, {
+    res.cookies.set("winflip_id_token", idToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Store email in a separate cookie for session lookup (not sensitive)
-    res.cookies.set("icarus_email", email, {
+    res.cookies.set("winflip_email", email, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
