@@ -142,8 +142,8 @@ def lambda_handler(event, context):
             chatbot_prompt = chatbot_prompt.replace("{candidate_questionnaire}", questionnaire_text)
         if user_insights:
             print("Filling user insights")
-            chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights)
-        chatbot_prompt = chatbot_prompt.replace("{query}", str(user_query))
+            chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights.get("insights"))
+        chatbot_prompt = chatbot_prompt.replace("{query}", user_query)
     except Exception as e:
         print(f"Unexpected error while filling chatbot prompt: {e}")
         return error_response(500, str(e))
