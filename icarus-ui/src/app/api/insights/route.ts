@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbClient = new DynamoDBClient({
   region: process.env.CUSTOM_REGION || "us-east-1",
@@ -36,5 +36,28 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     console.error("Error fetching insights:", err.name, err.message);
     return NextResponse.json({ exists: false, content: null, error: err.message }, { status: 500 });
+  }
+}
+
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const email = req.nextUrl.searchParams.get("email");
+    if (!email) {
+      return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
+    }
+
+    await docClient.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        userId: `USER#${email}`,
+        SK: "INSIGHTS",
+      },
+    }));
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("Error deleting insights:", err.name, err.message);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
