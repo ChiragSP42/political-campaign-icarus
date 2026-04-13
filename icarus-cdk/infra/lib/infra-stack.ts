@@ -72,7 +72,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // 2. S3 BUCKETS
     // =====================================================
 
-    // Store election data
+    // Store election data - NEED TO DEPRECATE
     const election_data_bucket = new aws_s3.Bucket(this, 'ElectionDataBucket', {
       bucketName: `icarus-election-data-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -89,27 +89,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // Store relevant election rules and regulations
     const election_laws = new aws_s3.Bucket(this, 'ElectionLawsBucket', {
       bucketName: `election-laws-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store filled questionnaires
-    const questionnaires = new aws_s3.Bucket(this, 'Questionnaires', {
-      bucketName: `icarus-questionnaires-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store generated insights
-    const generated_insights = new aws_s3.Bucket(this, 'GeneratedInsights', {
-      bucketName: `generated-insights-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store chatbot responses
-    const chatbot_responses = new aws_s3.Bucket(this, 'ChatbotResponses', {
-      bucketName: `chatbot-responses-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })

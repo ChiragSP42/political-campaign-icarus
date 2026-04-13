@@ -61,6 +61,7 @@ INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
 PROMPT_BUCKET = os.getenv("PROMPT_BUCKET", 'prompt-bucket')
 PROMPT_BUCKET = f"{PROMPT_BUCKET}-{ACCOUNT_ID}"
+# TODO: Replace this with something more robust and worthy of MVP
 ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", 'election_cycles.json')
 MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
 KB_ID = os.environ.get('KB_ID', '')
