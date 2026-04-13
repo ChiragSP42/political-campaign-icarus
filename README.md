@@ -1,7 +1,7 @@
 # 🗳️ WinFlip
 ## AI-Powered Political Campaign Strategy Platform
 
-> *Democratizing campaign intelligence. Because every candidate deserves a war room.*
+> *Democratizing campaign intelligence. Because every candidate deserves a war room!*
 
 ---
 
