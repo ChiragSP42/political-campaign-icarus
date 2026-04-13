@@ -162,7 +162,7 @@ def lambda_handler(event, context):
         print(f"Unexpected error while loading conversation history from DDB: {e}")
         return error_response(500, str(e))
 
-        messages = conversation_history + [message]
+    messages = conversation_history + [message]
 
     try:
         print("Converse call")
