@@ -74,6 +74,8 @@ chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE el
 main_table = dynamodb.Table(MAIN_TABLE_NAME)
 questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME)
 
+IGNORED_FIELDS = {'userId', 'savedAt', 'updatedAt'}
+
 
 def lambda_handler(event, context):
     """
