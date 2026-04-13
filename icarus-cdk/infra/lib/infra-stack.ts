@@ -167,7 +167,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // =====================================================
 
     const chatHistoryTable = new aws_dynamodb.Table(this, 'ChatHistoryTable', {
-      tableName: `icarus-chat-history-${this.account}`,
+      tableName: `chat-history-${this.account}`,
       partitionKey: { name: 'chatId', type: aws_dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: aws_dynamodb.AttributeType.STRING },
       billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -181,6 +181,34 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     })
 
     chatHistoryTable.grantReadWriteData(lambda_role)
+
+    // =====================================================
+    // 3c. DYNAMODB TABLE FOR USERS
+    // =====================================================
+
+    const mainTable = new aws_dynamodb.Table(this, 'MainTable', {
+      tableName: `main-${this.account}`,
+      partitionKey: { name: 'userId', type: aws_dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: aws_dynamodb.AttributeType.STRING },
+      billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    mainTable.grantReadWriteData(lambda_role)
+
+    // =====================================================
+    // 3d. DYNAMODB TABLE FOR QUESTIONNAIRE
+    // =====================================================
+
+    const questionnaireTable = new aws_dynamodb.Table(this, 'QuestionnaireTable', {
+      tableName: `questionnaire-${this.account}`,
+      partitionKey: { name: 'userId', type: aws_dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: aws_dynamodb.AttributeType.STRING },
+      billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    questionnaireTable.grantReadWriteData(lambda_role)
 
     // =====================================================
     // 4. LAMBDA FUNCTIONS
@@ -212,7 +240,8 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       memorySize: 1024,
       role: lambda_role,
       environment: {
-        S3_QUESTIONNAIRES: process.env.S3_QUESTIONNAIRES || 'icarus-questionnaires'
+        S3_QUESTIONNAIRES: process.env.S3_QUESTIONNAIRES || 'icarus-questionnaires',
+        QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })
 

@@ -135,6 +135,7 @@ def lambda_handler(event, context):
                                 Body=generated_insights,
                                 ContentType='text/markdown')
             print(f"Saved insights for {username}")
+            # Save generated insights to Main Table
         except:
             print("Failed to save in S3")
         

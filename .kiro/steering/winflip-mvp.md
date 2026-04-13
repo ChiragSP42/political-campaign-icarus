@@ -2,128 +2,180 @@
 inclusion: auto
 ---
 
-# WinFlip Phase 2 MVP — Project Steering
+# WinFlip MVP — Project Steering
 
 ## Project Overview
 
-WinFlip is an AI-powered campaign copiloting platform for down-ballot Virginia candidates. Phase 2 MVP evolves the Phase 1 "Project Icarus" POC (Streamlit + Lambda + Bedrock + S3) into a production-grade system with a React/Next.js frontend, DynamoDB storage, campaign journal, Stripe payments, and enhanced AI features.
+WinFlip is an AI-powered campaign copiloting platform for down-ballot Virginia candidates. The project evolved from a Phase 1 POC ("Project Icarus" — Streamlit + Lambda + Bedrock + S3) into the current MVP with a Next.js frontend, DynamoDB storage, campaign journal, and enhanced AI features. The codebase still uses the `icarus-` naming in folder structure from Phase 1 but is being branded as WinFlip.
 
 ## Code Location
 
-- All Phase 2 code lives in: `WinFlip Phase 2 - MVP/`
-- Frontend: `WinFlip Phase 2 - MVP/frontend/` (Next.js)
-- Backend: `WinFlip Phase 2 - MVP/backend/` (Lambda functions + CDK)
-- Phase 1 reference code: `Project Icarus Phase 1 - POC/Icarus/`
-- Spec files: `.kiro/specs/winflip-campaign-journal-mvp/`
+- Frontend: `icarus-ui/` (Next.js App Router)
+- Backend lambdas: `icarus-cdk/services/lambdas/`
+- CDK infrastructure: `icarus-cdk/infra/`
+- Prompt templates & local data: `icarus-cdk/local-files/`
+- Shared Python helpers: `aws_helpers/`
+- Phase 1 prototype reference: `prototype_chatbot_backend/`
+- Spec files: `.kiro/specs/`
 
 ## Package Management
 
-- Always use `uv` as the Python package installer. Never use `pip`.
-- Use `uv add` to add dependencies, `uv sync` to install, `uv run` to execute.
-- Each Lambda function has its own `pyproject.toml` for isolated dependencies.
-- Frontend uses `npm` for Node.js dependencies.
+- Use `npm` for the frontend (`icarus-ui/`).
+- Python tooling uses `uv` at the repo root (see `pyproject.toml` and `uv.lock`).
+- Lambda functions currently share a single code asset deployed from `icarus-cdk/services/lambdas/`.
 
 ## Tech Stack
 
 ### Frontend
-- React / Next.js (App Router)
-- TypeScript
-- AWS Amplify for hosting and CI/CD
-- Amplify Auth library for Cognito integration
-- TanStack Query (React Query) for server state
-- React Context + useReducer for global state (auth, settings)
+- Next.js 15 (App Router) with TypeScript
+- Tailwind CSS v4 for styling
+- AWS Amplify for hosting and CI/CD (`amplify.yml` at repo root)
+- AWS SDK v3 called directly from Next.js API routes (no Amplify Auth library)
+- React Context (`AuthProvider` in `src/lib/auth-context.tsx`) for auth state, persisted to localStorage
+- lucide-react for icons
+- react-markdown for rendering markdown
 
 ### Backend
 - Python 3.13 for all Lambda functions
-- Pydantic for data models and validation
 - boto3 for AWS service interactions
-- Amazon Bedrock (Claude Sonnet) for all AI operations
-- ULID for sortable unique IDs
+- Amazon Bedrock (Claude Sonnet) for AI operations
+- All lambdas deployed from a single asset path (`icarus-cdk/services/lambdas/`)
 
-### Infrastructure
-- AWS CDK (TypeScript) for infrastructure-as-code
-- DynamoDB for structured data (questionnaires, journal entries, insights, actions, chat sessions, subscriptions)
-- S3 for unstructured data (election data, prompts, generated insight documents)
-- API Gateway (REST) for all API endpoints
-- Amazon Cognito for authentication
-- CloudWatch for logging and metrics
-- Stripe (sandbox mode) for payments
+### Infrastructure (CDK — TypeScript)
+- Single stack: `IcarusDannerInfraStack` in `icarus-cdk/infra/lib/infra-stack.ts`
+- Amazon Cognito for authentication (email-based sign-up, user-password auth flow)
+- API Gateway (REST) with CORS and dev stage
+- DynamoDB tables:
+  - `chat-history-{accountId}` — partition key `chatId`, sort key `timestamp`, GSI on `userId`/`createdAt`
+  - `main-{accountId}` — partition key `userId` (prefixed `USER#`), sort key `SK` (index-overloaded: `META#`, `CHATS#`, `NOTES#`, `TASKS#`, etc.)
+- S3 buckets for election data, prompts, questionnaires, generated insights, chatbot responses
+- Shared IAM role (`lambda-role`) with Bedrock, S3, and DynamoDB permissions
+- Prompt templates auto-deployed from `icarus-cdk/local-files/` to the prompt bucket
 
-## Key Conventions
+## Frontend Structure
 
-### Python / Lambda
-- Use Pydantic models for all request/response schemas in `backend/lambdas/shared/models.py`
-- Use the shared `logger.py` module for structured JSON logging to CloudWatch
-- Use the shared `dynamo.py` module for DynamoDB operations
-- Use the shared `bedrock.py` module for Bedrock client calls
-- All Lambda handlers follow the pattern: parse request → validate → process → return response
-- Error responses use a consistent `error_response(status_code, message)` helper
-- Environment variables for all configurable values (bucket names, model IDs, table names)
-- Temperature 0.3 for chatbot/insights, 0.1 for entry tagger (deterministic classification)
+```
+icarus-ui/src/
+├── app/
+│   ├── (authenticated)/          # Route group — requires auth
+│   │   ├── layout.tsx            # Auth guard + AppShell wrapper
+│   │   ├── dashboard/page.tsx
+│   │   ├── questionnaire/page.tsx
+│   │   └── journal/
+│   │       ├── layout.tsx        # Journal sub-navigation
+│   │       ├── page.tsx          # Redirects to overview
+│   │       ├── overview/page.tsx
+│   │       ├── entries/page.tsx
+│   │       ├── insights/page.tsx
+│   │       └── actions/page.tsx
+│   ├── api/
+│   │   ├── auth/
+│   │   │   ├── signup/route.ts   # Cognito SignUp
+│   │   │   ├── confirm/route.ts  # Cognito ConfirmSignUp + DDB user row creation
+│   │   │   └── signin/route.ts   # Cognito InitiateAuth + questionnaire check
+│   │   ├── chat/
+│   │   │   ├── send/route.ts     # Trigger chatbot lambda
+│   │   │   ├── check/route.ts    # Poll for chatbot response
+│   │   │   └── sessions/         # Session CRUD + messages
+│   │   ├── insights/route.ts
+│   │   └── questionnaire/save/route.ts
+│   ├── auth/page.tsx             # Sign-in / sign-up / verify UI
+│   ├── layout.tsx                # Root layout with AuthProvider
+│   └── globals.css
+├── components/
+│   ├── chat/ChatSidebar.tsx
+│   ├── journal/                  # ActionItem, InsightCard, OverviewPage, etc.
+│   ├── layout/                   # AppShell, TopNav, NavLinks, HamburgerMenu
+│   └── shared/                   # Button, Card, FilterChip
+└── lib/
+    ├── auth-context.tsx          # AuthProvider + useAuth + useRequireAuth
+    ├── constants.ts              # Questionnaire options, archetype questions
+    ├── journal-types.ts          # Priority, ActivityEntry, Insight, SuggestedAction types
+    └── navigation.ts             # Nav items config + isActive helper
+```
 
-### TypeScript / Frontend
-- Use Next.js App Router (`src/app/` directory structure)
-- Components in `src/components/` organized by feature (journal/, chatbot/, insights/, etc.)
-- API client in `src/lib/api.ts` as a fetch wrapper
-- Type definitions in `src/lib/types.ts`
-- Custom hooks in `src/hooks/` (useAuth, useJournal, useChatbot)
-- WinFlip branding tokens in `src/styles/globals.css`
+## Lambda Functions
 
-### CDK / Infrastructure
-- Main stack: `WinFlipStack` in `backend/infra/lib/winflip-stack.ts`
-- Modular constructs: `api-construct.ts`, `auth-construct.ts`, `storage-construct.ts`, `lambda-construct.ts`
-- Environment-aware deployment via CDK context (`--context env=dev` or `--context env=prod`)
-- S3 bucket naming: `winflip-{purpose}-{accountId}`
-- DynamoDB table naming: `winflip-{entity}` (e.g., `winflip-journal-entries`)
-- Lambda naming: `winflip-{function}-lambda`
+| File | Purpose |
+|------|---------|
+| `chatbot_lambda.py` | Main Bedrock-powered chatbot |
+| `trigger_chatbot.py` | Async invocation of chatbot lambda, writes pending record to chat history |
+| `check_LLM_response_lambda.py` | Polls S3/DDB for chatbot response |
+| `check_questionnaire_lambda.py` | Checks if user completed questionnaire (S3 lookup) |
+| `save_questionnaire_lambda.py` | Stores questionnaire answers to S3 |
+| `generate_insights_lambda.py` | Triggered by S3 PUT on questionnaire bucket, generates insights via Bedrock |
+| `session_manager_lambda.py` | Chat session CRUD (list sessions, get messages, delete) |
 
 ## DynamoDB Patterns
 
-- Partition key is always `candidateId` (Cognito user sub)
-- Sort key is entity-specific (entryId, insightId, actionId, sessionId)
-- Use ULID for sort keys (time-sortable)
-- GSIs for tag-based and date-range queries on journal entries
-- All timestamps in ISO 8601 format
+### `main` table (single-table design)
+- PK: `userId` — always prefixed with `USER#` (e.g., `USER#user@example.com`)
+- SK: Index-overloaded with entity prefixes:
+  - `META#PROFILE` — user profile metadata (email, createdAt, status)
+  - `CHATS#<chatId>` — chat session references
+  - `NOTES#<noteId>` — user notes
+  - `TASKS#<taskId>` — user tasks
+- User row is created automatically on email confirmation (`/api/auth/confirm`)
+- Uses `ConditionExpression: attribute_not_exists(userId)` to prevent duplicates
 
-## AI / Bedrock Patterns
+### `chat-history` table
+- PK: `chatId`, SK: `timestamp`
+- GSI: `userId-index` (PK: `userId`, SK: `createdAt`) for listing a user's sessions
 
-- Prompt templates stored in S3 `winflip-prompts-{accountId}` bucket
-- Prompts use `{placeholder}` syntax for variable substitution
-- Token limit handling: estimate tokens first, chunk if needed, summarize partial results
-- Entry tagger returns structured JSON with `location_tag`, `topic_tag`, `event_type_tag`
-- Archetype tone levels: Cautious, Calm, Balanced, Engaged, Fired-up
-- Default tone: Balanced
+## Auth Flow
 
-## API Design
+1. **Sign Up** → `POST /api/auth/signup` → Cognito `SignUp` (user unconfirmed)
+2. **Verify Email** → `POST /api/auth/confirm` → Cognito `ConfirmSignUp` + creates `USER#<email>` / `META#PROFILE` row in `main` DDB table
+3. **Sign In** → `POST /api/auth/signin` → Cognito `InitiateAuth` (USER_PASSWORD_AUTH) + checks questionnaire completion → redirects to `/questionnaire` or `/dashboard`
+4. Auth state stored in localStorage via `AuthProvider` context
+5. Authenticated routes protected by `useRequireAuth()` hook in the `(authenticated)` layout
 
-- All endpoints require Cognito JWT auth except `/stripe/webhook`
-- Stripe webhook validates `Stripe-Signature` header
-- REST conventions: GET for reads, POST for creates/actions, PUT for updates
-- All responses include `Content-Type: application/json` and `Access-Control-Allow-Origin` headers
-- Error responses: `{ "error": "message" }` with appropriate HTTP status codes
+## Key Conventions
 
-## Testing
+### API Routes (Next.js)
+- All AWS SDK calls happen in Next.js API routes (server-side), not in client components
+- Cognito and DynamoDB clients use explicit credentials from env vars (`CUSTOM_ACCESS_KEY_ID`, `CUSTOM_SECRET_ACCESS_KEY`)
+- API Gateway endpoints proxied via `API_ENDPOINT` env var for lambda-backed operations
 
-- Unit tests in `backend/tests/unit/`
-- Property-based tests in `backend/tests/property/` (serialization round-trips, data model invariants)
-- Frontend tests alongside components
-- Use `uv run pytest` for backend tests
-- Use `npm run test -- --run` for frontend tests (single execution, not watch mode)
+### Frontend
+- Components organized by feature: `chat/`, `journal/`, `layout/`, `shared/`
+- Type definitions in `src/lib/journal-types.ts`
+- Navigation config in `src/lib/navigation.ts`
+- Questionnaire constants in `src/lib/constants.ts`
+- CSS variables for theming (`--primary`, `--muted`, `--border`, `--bg`, etc.)
 
-## Migration Notes
+### CDK / Infrastructure
+- Single stack, not modular constructs (all resources in `infra-stack.ts`)
+- S3 bucket naming: `{purpose}-{accountId}` (e.g., `icarus-questionnaires-{accountId}`)
+- DynamoDB table naming: `{name}-{accountId}`
+- Lambda naming: `{function}-lambda`
+- All lambdas share one IAM role with broad S3 + Bedrock + DDB permissions
+- Environment variables passed to lambdas for all configurable values
 
-- Phase 1 `PCMChatbot` class is refactored into `backend/lambdas/insights/pcm_chatbot.py`
-- Phase 1 `trigger_chatbot.py` and `check_LLM_response_lambda.py` are removed (replaced by synchronous pattern)
-- Phase 1 S3 bucket names (`icarus-*`) become `winflip-*`
-- Phase 1 CDK stack `IcarusDannerInfraStack` becomes modular `WinFlipStack`
-- Election data and prompt templates are preserved and copied to new bucket names
+## Environment Variables (Frontend — `.env.local`)
 
-## Out of Scope
+| Variable | Purpose |
+|----------|---------|
+| `CUSTOM_REGION` | AWS region |
+| `CUSTOM_ACCESS_KEY_ID` | AWS access key for SDK calls |
+| `CUSTOM_SECRET_ACCESS_KEY` | AWS secret key for SDK calls |
+| `COGNITO_USER_POOL_ID` | Cognito User Pool ID |
+| `COGNITO_CLIENT_ID` | Cognito App Client ID |
+| `COGNITO_REGION` | Cognito region |
+| `API_ENDPOINT` | API Gateway base URL |
+| `MAIN_TABLE_NAME` | DynamoDB main table name |
 
-- Comet integration (explicitly removed)
+## Deployment
+
+- Frontend deployed via AWS Amplify (see `amplify.yml`)
+- Amplify build injects `CUSTOM_*`, `COGNITO_*`, and `API_ENDPOINT` env vars into `.env.production`
+- CDK infrastructure deployed separately from `icarus-cdk/infra/`
+
+## Out of Scope (MVP)
+
+- Stripe payments / subscription management
 - Multi-state data beyond Virginia
-- Full production HA/DR
-- Native mobile apps (iOS/Android)
+- Native mobile apps
 - Real-time social media monitoring
 - Full NGP VAN / L2 integration
-- Complex subscription management (cancel/downgrade) — MVP is free→paid upgrade only
+- Production HA/DR
