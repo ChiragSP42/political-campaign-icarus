@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
           Item: {
             userId: `USER#${email}`,
             SK: "META#PROFILE",
-            email,
             createdAt: new Date().toISOString(),
             status: "active",
           },
