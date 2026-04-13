@@ -68,21 +68,6 @@ def lambda_handler(event, context):
         username = email.split("@")[0]
 
         try:
-            # Save to S3
-            try:
-                item = {
-                    'userId': f"USER#{email}",
-                    'answers': answers,
-                    'SK': f"META#QUESTIONNAIRE",
-                    'savedAt': timestamp,
-                    'updatedAt': datetime.now().isoformat(),
-                }
-                # s3_client.put_object(Bucket=S3_QUESTIONNAIRES,
-                #                     Key=f'{username}/{username}_questionnaire.json',
-                #                     Body=json.dumps(item),
-                #                     ContentType='application/json')
-            except Exception as e:
-                print("Failed to save in S3")
             # Save to DDB
             try:
                 item = {

@@ -10,6 +10,7 @@ import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
 import * as aws_dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as aws_lambda_event_sources from 'aws-cdk-lib/aws-lambda-event-sources';
 dotenv.config();
 
 export class IcarusDannerInfraStack extends cdk.Stack {
@@ -206,6 +207,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       sortKey: { name: 'SK', type: aws_dynamodb.AttributeType.STRING },
       billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      stream: aws_dynamodb.StreamViewType.NEW_IMAGE,
     })
 
     questionnaireTable.grantReadWriteData(lambda_role)
@@ -284,9 +286,19 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         ELECTION_CYCLE_FILENAME: process.env.ELECTION_CYCLE_FILENAME || 'election_cycles.json',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
-        S3_GENERATED_INSIGHTS: process.env.S3_GENERATED_INSIGHTS || 'generated-insights'
+        MAIN_TABLE_NAME: mainTable.tableName,
+        QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })
+
+    // Trigger generate-insights-lambda when questionnaire is saved to DynamoDB
+    generate_insights_lambda.addEventSource(
+      new aws_lambda_event_sources.DynamoEventSource(questionnaireTable, {
+        startingPosition: aws_lambda.StartingPosition.LATEST,
+        batchSize: 1,
+        retryAttempts: 2,
+      })
+    )
 
     // Trigger chatbot-lambda
     const trigger_chatbot_lambda = new aws_lambda.Function(this, 'trigger-chatbot-lambda', {
@@ -321,12 +333,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
-
-    // Trigger generate-insights-lambda when questionnaire gets populated
-    questionnaires.addEventNotification(
-      aws_s3.EventType.OBJECT_CREATED_PUT,
-      new s3n.LambdaDestination(generate_insights_lambda),
-    );
 
     // Session manager lambda
     const session_manager_lambda = new aws_lambda.Function(this, 'session-manager-lambda', {
