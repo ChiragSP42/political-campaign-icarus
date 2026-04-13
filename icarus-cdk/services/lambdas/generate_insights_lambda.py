@@ -66,7 +66,6 @@ ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", 'election_cycles.
 MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
 KB_ID = os.environ.get('KB_ID', '')
 MAIN_TABLE_NAME = os.getenv("MAIN_TABLE_NAME")
-QUESTIONNAIRE_TABLE_NAME = os.getenv("QUESTIONNAIRE_TABLE_NAME")
 
 main_table = dynamodb.Table(MAIN_TABLE_NAME)
 
@@ -74,7 +73,7 @@ response = s3_client.get_object(Bucket=PROMPT_BUCKET, Key=ELECTION_CYCLE_FILENAM
 ELECTION_CYCLES_DATA = json.loads(response["Body"].read().decode('utf-8'))
 
 # Fields to ignore when extracting questionnaire answers from DynamoDB record
-IGNORED_FIELDS = {'userId', 'SK', 'savedAt', 'updatedAt'}
+IGNORED_FIELDS = {'userId', 'savedAt', 'updatedAt'}
 
 
 def deserialize_dynamodb_record(record: Dict) -> Dict:

@@ -72,7 +72,6 @@ def lambda_handler(event, context):
             try:
                 item = {
                     'userId': f"USER#{email}",
-                    'SK': f"META#QUESTIONNAIRE",
                     'savedAt': timestamp,
                     'updatedAt': datetime.now().isoformat(),
                 }

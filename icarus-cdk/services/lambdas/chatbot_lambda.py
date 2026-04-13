@@ -59,12 +59,9 @@ dynamodb = boto3.resource("dynamodb")
 
 # Environment variables
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
-S3_GENERATED_INSIGHTS = os.getenv("S3_GENERATED_INSIGHTS", 'generated-insights')
-S3_GENERATED_INSIGHTS = f"{S3_GENERATED_INSIGHTS}-{ACCOUNT_ID}"
-S3_RESPONSES = os.getenv("S3_RESPONSES", 'chatbot-responses')
-S3_RESPONSES = f"{S3_RESPONSES}-{ACCOUNT_ID}"
-S3_QUESTIONNAIRES = os.getenv("S3_QUESTIONNAIRES", 'icarus-questionnaires')
-S3_QUESTIONNAIRES = f"{S3_QUESTIONNAIRES}-{ACCOUNT_ID}"
+
+MAIN_TABLE_NAME = os.getenv("MAIN_TABLE_NAME")
+QUESTIONNAIRE_TABLE_NAME = os.getenv("QUESTIONNAIRE_TABLE_NAME")
 CHATBOT_PROMPT = os.getenv("CHATBOT_PROMPT", 'campaign_advisor_prompt.md')
 PROMPT_BUCKET = os.getenv("PROMPT_BUCKET", 'prompt-bucket')
 PROMPT_BUCKET = f"{PROMPT_BUCKET}-{ACCOUNT_ID}"
@@ -74,6 +71,8 @@ CHAT_HISTORY_TABLE = os.getenv("CHAT_HISTORY_TABLE", "")
 
 # DynamoDB table reference
 chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE else None
+main_table = dynamodb.Table(MAIN_TABLE_NAME)
+questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME)
 
 
 def lambda_handler(event, context):
@@ -104,18 +103,21 @@ def lambda_handler(event, context):
 
         # Get insights for candidate
         print("Getting insights for candidate")
-        response = s3_client.get_object(Bucket=S3_GENERATED_INSIGHTS,
-                                        Key=f'{username}/{username}_insights.md')
-        user_insights = response['Body'].read().decode('utf-8')
+        response = main_table.get_item(Key={
+            'userId': f"USER#{email}",
+            'SK': "INSIGHTS"
+        })
+        user_insights = response.get("Item")
 
         # Get questionnaire for candidate
         print("Getting questionnaire for candidate")
-        response = s3_client.get_object(Bucket=S3_QUESTIONNAIRES,
-                                        Key=f"{username}/{username}_questionnaire.json")
-        questionnaire = json.loads(response['Body'].read())
+        response = questionnaire_table.get_item(Key={
+            'userId': f"USER#{email}"
+        })
+        item = response.get("Item")
+        questionnaire_answers = {k: v for k, v in item.items() if k not in IGNORED_FIELDS}
 
         questionnaire_text = prepare_user_context(questionnaire=questionnaire)
-        s3_client.put_object(Bucket=S3_GENERATED_INSIGHTS, Key=f'questionnaire_text.md', Body=chatbot_prompt, ContentType='text/markdown')
 
         # Fill system prompt
         print("Filling chatbot prompt")
@@ -124,7 +126,6 @@ def lambda_handler(event, context):
         chatbot_prompt = chatbot_prompt.replace("{user_query}", user_query)
         # chatbot_prompt = chatbot_prompt.replace("{relevant_election_laws}", election_laws)
         # Format query into message format.
-        s3_client.put_object(Bucket=S3_GENERATED_INSIGHTS, Key=f'chatbot_prompt.md', Body=chatbot_prompt, ContentType='text/markdown')
         message = {
             'role': 'user',
             'content': [{'text': chatbot_prompt}]
@@ -152,7 +153,6 @@ def lambda_handler(event, context):
         write_assistant_message(chat_id=chat_id, user_id=email, content=answer)
 
         # Use chatId-based S3 key for response
-        s3_client.put_object(Bucket=S3_RESPONSES, Key=f'{username}/{chat_id}_response.md', Body=answer, ContentType='text/markdown')
         print("LLM generation successful")
         return {
             'statusCode': 200,

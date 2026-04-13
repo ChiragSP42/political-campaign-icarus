@@ -185,7 +185,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     const questionnaireTable = new aws_dynamodb.Table(this, 'QuestionnaireTable', {
       tableName: `questionnaire-${this.account}`,
       partitionKey: { name: 'userId', type: aws_dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: aws_dynamodb.AttributeType.STRING },
       billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       stream: aws_dynamodb.StreamViewType.NEW_IMAGE,
