@@ -119,7 +119,7 @@ def lambda_handler(event, context):
         item = response.get("Item")
         questionnaire_answers = {k: v for k, v in item.items() if k not in IGNORED_FIELDS}
 
-        questionnaire_text = prepare_user_context(questionnaire=questionnaire)
+        questionnaire_text = prepare_user_context(questionnaire=questionnaire_answers)
 
         # Fill system prompt
         print("Filling chatbot prompt")
