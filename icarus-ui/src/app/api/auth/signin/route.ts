@@ -25,11 +25,31 @@ export async function POST(req: NextRequest) {
       AuthParameters: { USERNAME: email, PASSWORD: password },
     }));
 
-    // Check questionnaire
-    const checkRes = await fetch(`${API}/check-questionnaire?email=${encodeURIComponent(email)}`, { signal: AbortSignal.timeout(10000) });
-    const checkData = await checkRes.json();
+    // Check if insights already exist for this user
+    const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+    const { DynamoDBDocumentClient, GetCommand } = await import("@aws-sdk/lib-dynamodb");
 
-    return NextResponse.json({ success: true, email, questionnaireCompleted: checkData.exists ?? false });
+    const ddbClient = new DynamoDBClient({
+      region: process.env.CUSTOM_REGION || "us-east-1",
+      credentials: {
+        accessKeyId: process.env.CUSTOM_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.CUSTOM_SECRET_ACCESS_KEY!,
+      },
+    });
+    const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+    let hasInsights = false;
+    try {
+      const result = await docClient.send(new GetCommand({
+        TableName: process.env.MAIN_TABLE_NAME!,
+        Key: { userId: `USER#${email}`, SK: "INSIGHTS" },
+      }));
+      hasInsights = !!(result.Item && result.Item.insights);
+    } catch (e) {
+      console.error("Error checking insights:", e);
+    }
+
+    return NextResponse.json({ success: true, email, questionnaireCompleted: hasInsights });
   } catch (err: any) {
     const code = err?.name || err?.__type || "";
     const messages: Record<string, string> = {

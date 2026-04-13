@@ -23,6 +23,9 @@ export default function DashboardPage() {
   const [chatId, setChatId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(50);
+  const isDragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const loadInsights = useCallback(async () => {
     if (!auth.email) return;
@@ -38,6 +41,19 @@ export default function DashboardPage() {
 
   useEffect(() => { loadInsights(); }, [loadInsights]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      setLeftPanelWidth(Math.min(80, Math.max(20, pct)));
+    };
+    const handleMouseUp = () => { isDragging.current = false; document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => { window.removeEventListener("mousemove", handleMouseMove); window.removeEventListener("mouseup", handleMouseUp); };
+  }, []);
 
   async function onSelectSession(selectedChatId: string) {
     try {
@@ -138,48 +154,9 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
       {/* Main content — stacks vertically on mobile, side-by-side on desktop */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Insights panel */}
-        <div className="w-full md:w-1/2 border-b md:border-b-0 md:border-r border-[var(--border)] flex flex-col bg-white">
-          <div className="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
-            <h2 className="font-semibold flex items-center gap-2"><FileText size={18} /> Campaign Insights</h2>
-            <div className="flex gap-2">
-              {insights && (
-                <button onClick={downloadInsights}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 rounded-lg transition">
-                  <Download size={14} /> Download
-                </button>
-              )}
-              <button onClick={loadInsights}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 rounded-lg transition">
-                <RefreshCw size={14} /> Refresh
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-5">
-            {insightsLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 size={32} className="animate-spin text-[var(--primary)]" />
-              </div>
-            ) : insights ? (
-              <div className="prose">
-                <ReactMarkdown>{insights}</ReactMarkdown>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center">
-                <p className="text-[var(--muted)] mb-2">⏳ Your campaign insights are still being generated.</p>
-                <p className="text-sm text-[var(--muted)]">This typically takes 1-2 minutes.</p>
-                <button onClick={loadInsights}
-                  className="mt-4 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition">
-                  Check Again
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Chat half — sidebar + chat panel */}
-        <div className="w-full md:w-1/2 flex flex-row">
+      <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* Chat half — sidebar + chat panel (LEFT) */}
+        <div className="flex flex-row overflow-hidden" style={{ width: `${leftPanelWidth}%` }}>
           {/* Chat Sidebar */}
           <div className="hidden md:block" style={{ width: "240px", flexShrink: 0 }}>
             <ChatSidebar
@@ -247,6 +224,53 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Draggable divider */}
+        <div
+          className="hidden md:flex items-center justify-center w-2 cursor-col-resize hover:bg-[var(--primary)]/10 active:bg-[var(--primary)]/20 transition-colors group"
+          onMouseDown={() => { isDragging.current = true; document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none"; }}
+        >
+          <div className="w-0.5 h-8 bg-gray-300 rounded-full group-hover:bg-[var(--primary)] transition-colors" />
+        </div>
+
+        {/* Insights panel (RIGHT) */}
+        <div className="flex-1 border-t md:border-t-0 flex flex-col bg-white min-w-0">
+          <div className="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
+            <h2 className="font-semibold flex items-center gap-2"><FileText size={18} /> Campaign Insights</h2>
+            <div className="flex gap-2">
+              {insights && (
+                <button onClick={downloadInsights}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 rounded-lg transition">
+                  <Download size={14} /> Download
+                </button>
+              )}
+              <button onClick={loadInsights}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 rounded-lg transition">
+                <RefreshCw size={14} /> Refresh
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            {insightsLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 size={32} className="animate-spin text-[var(--primary)]" />
+              </div>
+            ) : insights ? (
+              <div className="prose">
+                <ReactMarkdown>{insights}</ReactMarkdown>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <p className="text-[var(--muted)] mb-2">⏳ Your campaign insights are still being generated.</p>
+                <p className="text-sm text-[var(--muted)]">This typically takes 1-2 minutes.</p>
+                <button onClick={loadInsights}
+                  className="mt-4 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition">
+                  Check Again
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
