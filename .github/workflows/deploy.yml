@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - feature/chat-bugs
 
 # 2. These permissions are required for OIDC to generate the temporary token
 permissions:
