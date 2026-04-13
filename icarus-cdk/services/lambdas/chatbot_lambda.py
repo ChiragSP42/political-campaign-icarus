@@ -154,7 +154,7 @@ def lambda_handler(event, context):
         'content': [{'text': chatbot_prompt}]
     }
 
-    conversation_history = jls_extract_var
+    conversation_history = []
     try:
         # Load conversation history from DynamoDB instead of payload
         print(f"Loading conversation history from DynamoDB for chatId={chat_id}")
