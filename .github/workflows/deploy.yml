@@ -1,0 +1,41 @@
+name: Deploy CDK to AWS
+
+# 1. This tells GitHub to run this workflow whenever you push to the 'main' branch
+on:
+  push:
+    branches:
+      - main
+
+# 2. These permissions are required for OIDC to generate the temporary token
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 3. Download your code onto the GitHub runner server
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 4. Install Node.js (which CDK requires)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # 5. Install your project dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 6. Trade the OIDC token for temporary AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::991033550091:role/GitHubActions-CDK-Deploy-Role  # <-- REPLACE THIS WITH YOUR ROLE ARN
+          aws-region: us-east-1  # <-- REPLACE WITH YOUR AWS REGION
+
+      # 7. Run the actual CDK deploy command
+      - name: CDK Deploy
+        run: npx cdk deploy --require-approval never

@@ -240,7 +240,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       memorySize: 1024,
       role: lambda_role,
       environment: {
-        S3_QUESTIONNAIRES: process.env.S3_QUESTIONNAIRES || 'icarus-questionnaires',
         QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })

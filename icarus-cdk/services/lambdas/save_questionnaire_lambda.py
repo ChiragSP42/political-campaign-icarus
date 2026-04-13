@@ -38,7 +38,7 @@ dynamodb = boto3.resource('dynamodb')
 # ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 # S3_QUESTIONNAIRES = os.getenv("S3_QUESTIONNAIRES", 'icarus-questionnaires')
 # S3_QUESTIONNAIRES = f"{S3_QUESTIONNAIRES}-{ACCOUNT_ID}"
-QUESIONNAIRE_TABLE_NAME = os.getenv("QUESTIONNAIRE_TABLE_NAME")
+QUESTIONNAIRE_TABLE_NAME = os.getenv("QUESTIONNAIRE_TABLE_NAME")
 
 questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME)
 
