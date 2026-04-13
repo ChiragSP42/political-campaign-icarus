@@ -8,8 +8,8 @@ export function UserControls() {
   const auth = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
-    auth.logout();
+  const handleLogout = async () => {
+    await auth.logout();
     router.push("/auth");
   };
 

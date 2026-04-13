@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 export default function Home() {
-  const { authenticated, questionnaireCompleted } = useAuth();
+  const { authenticated, questionnaireCompleted, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (loading) return;
     if (!authenticated) {
       router.replace("/auth");
     } else if (!questionnaireCompleted) {
@@ -16,7 +17,7 @@ export default function Home() {
     } else {
       router.replace("/dashboard");
     }
-  }, [authenticated, questionnaireCompleted, router]);
+  }, [authenticated, questionnaireCompleted, loading, router]);
 
   return (
     <div className="flex items-center justify-center min-h-screen">
