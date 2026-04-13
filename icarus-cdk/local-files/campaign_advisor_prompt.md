@@ -257,4 +257,4 @@ Every response must feel specific to this candidate and this race. Generic campa
 
 Now with all this information and context answer the following user's question given below.
 
-{user_query}
+{query}
