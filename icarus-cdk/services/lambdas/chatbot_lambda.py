@@ -139,9 +139,10 @@ def lambda_handler(event, context):
         # Fill system prompt
         print("Filling chatbot prompt")
         if questionnaire_text:
-            print
+            print("Filling questionnaire")
             chatbot_prompt = chatbot_prompt.replace("{candidate_questionnaire}", questionnaire_text)
         if user_insights:
+            print("Filling user insights")
             chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights)
         chatbot_prompt = chatbot_prompt.replace("{user_query}", user_query)
     except Exception as e:
