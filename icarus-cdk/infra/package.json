@@ -23,9 +23,6 @@
   "dependencies": {
     "aws-cdk-lib": "2.215.0",
     "constructs": "^10.0.0",
-    "dotenv": "^17.2.3",
-    "@aws-cdk/aws-ecs": "^1.204.0",
-    "@aws-cdk/aws-ecs-patterns": "^1.204.0",
-    "@aws-cdk/aws-ecr-assets": "^1.204.0"
+    "dotenv": "^17.2.3"
   }
 }

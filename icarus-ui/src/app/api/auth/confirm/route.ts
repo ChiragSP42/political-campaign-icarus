@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
       if (ddbErr.name !== "ConditionalCheckFailedException") {
         console.error("Failed to create user in DynamoDB:", ddbErr);
       }
+      else {
+        console.error("Failed to create user in DynamoDB:", ddbErr)
+      }
     }
 
     return NextResponse.json({ success: true, message: "Email confirmed! You can now sign in." });
