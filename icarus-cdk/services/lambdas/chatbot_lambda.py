@@ -93,16 +93,22 @@ def lambda_handler(event, context):
         chat_id = body.get("chatId", "")
         email = body.get("email", "")
         username = email.split("@")[0]
+    except json.JSONDecodeError:
+        return error_response(400, 'Invalid JSON in request body')
 
+    try:
         # Get system prompt for chatbot
         print("Getting system prompt for chatbot")
         response = s3_client.get_object(Bucket=PROMPT_BUCKET,
                                         Key=CHATBOT_PROMPT)
         chatbot_prompt = response['Body'].read().decode('utf-8')
+    except Exception as e:
+        print(f"Unexpected error while retrieving chatbot prompt: {e}")
+        return error_response(500, str(e))
 
         # Get relevant election law chunks from KB
         # election_laws = retrieve_laws(user_query=user_query)
-
+    try:
         # Get insights for candidate
         print("Getting insights for candidate")
         response = main_table.get_item(Key={
@@ -110,7 +116,11 @@ def lambda_handler(event, context):
             'SK': "INSIGHTS"
         })
         user_insights = response.get("Item")
+    except Exception as e:
+        print(f"Unexpected error while retrieving insights: {e}")
+        return error_response(500, str(e))
 
+    try:
         # Get questionnaire for candidate
         print("Getting questionnaire for candidate")
         response = questionnaire_table.get_item(Key={
@@ -121,11 +131,22 @@ def lambda_handler(event, context):
 
         questionnaire_text = prepare_user_context(questionnaire=questionnaire_answers)
 
+    except Exception as e:
+        print(f"Unexpected error while retrieving questionnaire: {e}")
+        return error_response(500, str(e))
+
+    try:
         # Fill system prompt
         print("Filling chatbot prompt")
-        chatbot_prompt = chatbot_prompt.replace("{candidate_questionnaire}", questionnaire_text)
-        chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights)
+        if questionnaire_text:
+            print
+            chatbot_prompt = chatbot_prompt.replace("{candidate_questionnaire}", questionnaire_text)
+        if user_insights:
+            chatbot_prompt = chatbot_prompt.replace("{generated_insights}", user_insights)
         chatbot_prompt = chatbot_prompt.replace("{user_query}", user_query)
+    except Exception as e:
+        print(f"Unexpected error while filling chatbot prompt: {e}")
+        return error_response(500, str(e))
         # chatbot_prompt = chatbot_prompt.replace("{relevant_election_laws}", election_laws)
         # Format query into message format.
         message = {
@@ -133,12 +154,17 @@ def lambda_handler(event, context):
             'content': [{'text': chatbot_prompt}]
         }
 
+    try:
         # Load conversation history from DynamoDB instead of payload
         print(f"Loading conversation history from DynamoDB for chatId={chat_id}")
         conversation_history = load_conversation_history(chat_id)
+    except Exception as e:
+        print(f"Unexpected error while loading conversation history from DDB: {e}")
+        return error_response(500, str(e))
 
         messages = conversation_history + [message]
 
+    try:
         print("Converse call")
         response = bedrock_runtime.converse(
             modelId=MODEL_ID,
@@ -168,12 +194,8 @@ def lambda_handler(event, context):
                 'Access-Control-Allow-Origin': '*'
             }
         }
-    
-    except json.JSONDecodeError:
-        return error_response(400, 'Invalid JSON in request body')
-    
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error while running converse call: {e}")
         return error_response(500, str(e))
 
 def error_response(status_code, message):
