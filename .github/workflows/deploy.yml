@@ -15,16 +15,19 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: icarus-cdk/infra
     steps:
       # 3. Download your code onto the GitHub runner server
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # 4. Install Node.js (which CDK requires)
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
 
       # 5. Install your project dependencies
       - name: Install dependencies
@@ -35,7 +38,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::991033550091:role/GitHubActions-CDK-Deploy-Role  # <-- REPLACE THIS WITH YOUR ROLE ARN
-          aws-region: us-east-1  # <-- REPLACE WITH YOUR AWS REGION
+          aws-region: us-east-1
 
       # 7. Run the actual CDK deploy command
       - name: CDK Deploy
