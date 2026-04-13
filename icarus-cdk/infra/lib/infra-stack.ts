@@ -11,7 +11,9 @@ import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
 import * as aws_dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as aws_lambda_event_sources from 'aws-cdk-lib/aws-lambda-event-sources';
-dotenv.config();
+dotenv.config({
+  path: path.join(__dirname, "../../../.env")
+})
 
 export class IcarusDannerInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {

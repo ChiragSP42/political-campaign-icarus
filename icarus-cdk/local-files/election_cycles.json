@@ -1,0 +1,164 @@
+{
+    "elections": [
+        {
+            "election": "President",
+            "id": 1,
+            "cycle": 4,
+            "election_pattern": "even",
+            "is_statewide": true,
+            "description": "Presidential elections occur every 4 years in even-numbered years"
+        },
+        {
+            "election": "U.S._Senate",
+            "id": 6,
+            "cycle": 6,
+            "election_pattern": "even_biennial",
+            "is_statewide": true,
+            "description": "Senate elections occur every 6 years, with approximately 1/3 of seats up every 2 years"
+        },
+        {
+            "election": "U.S._House",
+            "id": 5,
+            "cycle": 2,
+            "election_pattern": "even",
+            "is_statewide": false,
+            "description": "House elections occur every 2 years in even-numbered years"
+        },
+        {
+            "election": "Governor",
+            "id": 3,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": true,
+            "description": "Gubernatorial elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Lieutenant_Governor",
+            "id": 4,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": true,
+            "description": "Lieutenant Governor elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Attorney_General",
+            "id": 12,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": true,
+            "description": "Attorney General elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Senate_of_Virginia",
+            "id": 9,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Virginia State Senate elections occur every 4 years in odd-numbered years"
+        },
+        {
+            "election": "House_of_Delegates",
+            "id": 8,
+            "cycle": 2,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "House of Delegates elections occur every 2 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Commonwealth's_Attorney",
+            "id": 530,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Commonwealth's Attorney elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Commissioner_of_the_Revenue",
+            "id": 552,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Commissioner of the Revenue elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "County_Board_Member",
+            "id": 546,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "County_Board_Member elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Sheriff",
+            "id": 386,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Sheriff elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Treasurer",
+            "id": 389,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Treasurer elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Clerk_of_Court",
+            "id": 545,
+            "cycle": 8,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Clerk of Court elections occur every 8 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "School_Board",
+            "id": 549,
+            "cycle": 4,
+            "election_pattern": "periodic",
+            "is_statewide": false,
+            "description": "School Board elections in Virginia occur every 4 years, 2 years, or annually depending on the jurisdiction"
+        },
+        {
+            "election": "Soil_and_Water_Conservation_Director",
+            "id": 553,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Soil and Water Conservation Director elections occur every 4 years in odd-numbered years (Virginia)"
+        },
+        {
+            "election": "Mayor",
+            "id": 73,
+            "cycle": 4,
+            "election_pattern": "periodic",
+            "is_statewide": false,
+            "description": "Mayoral elections vary by jurisdiction, typically 2-4 year terms"
+        },
+        {
+            "election": "City_Council",
+            "id": 551,
+            "cycle": 4,
+            "election_pattern": "periodic",
+            "is_statewide": false,
+            "description": "City Council elections typically occur every 4 years with staggered terms (Virginia)"
+        },
+        {
+            "election": "Town_Council",
+            "id": 547,
+            "cycle": 4,
+            "election_pattern": "periodic",
+            "is_statewide": false,
+            "description": "Town Council elections typically occur every 4 years with staggered terms"
+        },
+        {
+            "election": "Board_of_Supervisors",
+            "id": 419,
+            "cycle": 4,
+            "election_pattern": "odd",
+            "is_statewide": false,
+            "description": "Board of Supervisors elections occur every 4 years (often staggered)"
+        }
+    ]
+}
