@@ -149,11 +149,12 @@ def lambda_handler(event, context):
         return error_response(500, str(e))
         # chatbot_prompt = chatbot_prompt.replace("{relevant_election_laws}", election_laws)
         # Format query into message format.
-        message = {
-            'role': 'user',
-            'content': [{'text': chatbot_prompt}]
-        }
+    message = {
+        'role': 'user',
+        'content': [{'text': chatbot_prompt}]
+    }
 
+    conversation_history = jls_extract_var
     try:
         # Load conversation history from DynamoDB instead of payload
         print(f"Loading conversation history from DynamoDB for chatId={chat_id}")
