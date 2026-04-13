@@ -9,7 +9,7 @@ lambda_client = boto3.client("lambda")
 dynamodb = boto3.resource("dynamodb")
 
 # Environment variables
-CHATBOT_LAMBDA_NAME = os.getenv("CHABOT_LAMBDA_NAME", 'chatbot-lambda')
+CHATBOT_LAMBDA_NAME = os.getenv("CHATBOT_LAMBDA_NAME", 'chatbot-lambda')
 CHAT_HISTORY_TABLE = os.getenv("CHAT_HISTORY_TABLE", "")
 
 # DynamoDB table reference

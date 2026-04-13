@@ -300,7 +300,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // Check chatbot response
     const check_chatbot_response_lambda = new aws_lambda.Function(this, 'check-llm-response-lambda', {
       functionName: 'check-llm-response-lambda',
-      description: 'Check is chatbot-lambda stored response in S3',
+      description: 'Check if chatbot-lambda has stored response in DynamoDB',
       code: aws_lambda.Code.fromAsset(path.join(__dirname, "../../services/lambdas/")),
       handler: 'check_LLM_response_lambda.lambda_handler',
       runtime: aws_lambda.Runtime.PYTHON_3_13,
@@ -309,7 +309,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       role: lambda_role,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       environment: {
-        S3_RESPONSES: process.env.S3_RESPONSES || 'chatbot-responses',
         CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
