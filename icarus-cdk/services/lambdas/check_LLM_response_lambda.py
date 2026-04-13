@@ -1,90 +1,68 @@
 import boto3
 import json
 import os
-import time
-from botocore.config import Config
+from boto3.dynamodb.conditions import Key
 
-# Initialize Boto3 Clients
-config = Config(
-    read_timeout=300,
-    connect_timeout=60,
-    retries={
-        'total_max_attempts': 5,
-        'mode': 'adaptive'
-    }
-)
+dynamodb = boto3.resource("dynamodb")
 
-s3_client = boto3.client("s3")
-sts_client = boto3.client("sts")
+CHAT_HISTORY_TABLE = os.getenv("CHAT_HISTORY_TABLE", "")
+chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE else None
 
-# Environment variables
-ACCOUNT_ID = sts_client.get_caller_identity()['Account']
-S3_RESPONSES = os.getenv("S3_RESPONSES", 'chatbot-responses')
-S3_RESPONSES = f"{S3_RESPONSES}-{ACCOUNT_ID}"
 
 def lambda_handler(event, context):
     print(event)
-    print("Loading event and body...")
     try:
-        body = event.get('queryStringParameters', '{}')
-        print(f"Body: {body}")
-        email = body.get("email", "")
-        username = email.split("@")[0]
-        chat_id = body.get("chatId", "")
+        params = event.get('queryStringParameters', {})
+        email = params.get("email", "")
+        chat_id = params.get("chatId", "")
     except Exception as e:
-        print("Failed to load body from events")
-        print(e)
+        print(f"Failed to parse event: {e}")
+        return error_response(400, {"status": "FAILED", "message": str(e)})
 
-        message = {
-            'status': "FAILED",
-            'message': f"{e}"
-        }
-        return error_response(400, message)
-    
     if not chat_id:
-        message = {
-            'status': "FAILED",
-            'message': "chatId is required"
-        }
-        return error_response(400, message)
-    
-    print("Starting to check if response has been generated...")
-    s3_key = f"{username}/{chat_id}_response.md"
+        return error_response(400, {"status": "FAILED", "message": "chatId is required"})
+
+    if not chat_history_table:
+        return error_response(500, {"status": "FAILED", "message": "Chat history table not configured"})
+
     try:
-        response = s3_client.get_object(Bucket=S3_RESPONSES,
-                                Key=s3_key)
-        print("Got response")
-        chatbot_response = response['Body'].read().decode('utf-8')
-        response = s3_client.delete_object(Bucket=S3_RESPONSES,
-                                Key=s3_key)
-        print("Deleted chatbot response")
+        # Query DynamoDB for the most recent message in this chat (excluding META)
+        response = chat_history_table.query(
+            KeyConditionExpression=Key("chatId").eq(chat_id),
+            ScanIndexForward=False,  # descending by timestamp
+            Limit=5,
+        )
 
-        message = {
-            'status': 'COMPLETED',
-            'message': chatbot_response
-        }
-        return return_response(200, message)
-    
-    except s3_client.exceptions.NoSuchKey:
-        print("LLM response not done yet")
+        for item in response.get("Items", []):
+            if item.get("timestamp") == "META":
+                continue
+            # The most recent non-META message determines the status:
+            # If it's an assistant message, the response is ready.
+            # If it's a user message, the bot hasn't responded yet.
+            if item.get("role") == "assistant":
+                return return_response(200, {
+                    "status": "COMPLETED",
+                    "message": item.get("content", "")
+                })
+            else:
+                # Latest message is from user — still waiting for assistant
+                return return_response(200, {
+                    "status": "IN_PROGRESS",
+                    "message": "LLM response not done yet"
+                })
 
-        message = {
-            'status': "IN_PROGRESS",
-            'message': "LLM response not done yet"
-        }
-        return return_response(200, message)
-    
+        # No messages at all
+        return return_response(200, {
+            "status": "IN_PROGRESS",
+            "message": "LLM response not done yet"
+        })
+
     except Exception as e:
-        print("Failed")
-        message = {
-            "status": "FAILED",
-            "message": e
-        }
-    return error_response(400, message)
+        print(f"Error checking for response: {e}")
+        return error_response(500, {"status": "FAILED", "message": str(e)})
 
-            
+
 def error_response(status_code, message: dict):
-    """Helper function to return error responses."""
     return {
         'statusCode': status_code,
         'body': json.dumps(message),
@@ -94,8 +72,8 @@ def error_response(status_code, message: dict):
         }
     }
 
+
 def return_response(status_code, message: dict):
-    """Helper function to return error responses."""
     return {
         'statusCode': status_code,
         'body': json.dumps(message),

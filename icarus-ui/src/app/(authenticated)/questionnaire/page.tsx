@@ -25,6 +25,9 @@ export default function QuestionnairePage() {
   async function handleSubmit() {
     setLoading(true); setError("");
     try {
+      // Delete old insights so polling waits for the new ones
+      await fetch(`/api/insights?email=${encodeURIComponent(auth.email!)}`, { method: "DELETE" });
+
       const res = await fetch("/api/questionnaire/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

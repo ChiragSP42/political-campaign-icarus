@@ -8,7 +8,7 @@ applications:
             - npm ci
         build:
           commands:
-            - env | grep -e CUSTOM_ -e COGNITO_ -e API_ENDPOINT >> .env.production
+            - env | grep -e CUSTOM_ -e COGNITO_ -e API_ENDPOINT -e MAIN_TABLE_NAME >> .env.production
             - npm run build
       artifacts:
         baseDirectory: .next

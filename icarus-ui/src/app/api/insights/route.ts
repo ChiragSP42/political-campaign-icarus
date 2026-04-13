@@ -1,35 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+
+const ddbClient = new DynamoDBClient({
+  region: process.env.CUSTOM_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.CUSTOM_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.CUSTOM_SECRET_ACCESS_KEY!,
+  },
+});
+const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+const TABLE_NAME = process.env.MAIN_TABLE_NAME!;
 
 export async function GET(req: NextRequest) {
   try {
-    const email = req.nextUrl.searchParams.get("email")!;
-    const username = email.split("@")[0];
+    const email = req.nextUrl.searchParams.get("email");
+    if (!email) {
+      return NextResponse.json({ exists: false, content: null, error: "Email is required" }, { status: 400 });
+    }
 
-    const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-    const { STSClient, GetCallerIdentityCommand } = await import("@aws-sdk/client-sts");
-
-    const creds = {
-      accessKeyId: process.env.CUSTOM_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.CUSTOM_SECRET_ACCESS_KEY!,
-    };
-    const region = process.env.CUSTOM_REGION || "us-east-1";
-
-    const sts = new STSClient({ region, credentials: creds });
-    const identity = await sts.send(new GetCallerIdentityCommand({}));
-    const accountId = identity.Account!;
-
-    const s3 = new S3Client({ region, credentials: creds });
-    const res = await s3.send(new GetObjectCommand({
-      Bucket: `generated-insights-${accountId}`,
-      Key: `${username}/${username}_insights.md`,
+    const result = await docClient.send(new GetCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        userId: `USER#${email}`,
+        SK: "INSIGHTS",
+      },
     }));
 
-    const content = await res.Body!.transformToString();
-    return NextResponse.json({ exists: true, content });
-  } catch (err: any) {
-    if (err.name === "NoSuchKey") {
-      return NextResponse.json({ exists: false, content: null });
+    if (result.Item && result.Item.insights) {
+      return NextResponse.json({ exists: true, content: result.Item.insights });
     }
+
+    return NextResponse.json({ exists: false, content: null });
+  } catch (err: any) {
+    console.error("Error fetching insights:", err.name, err.message);
     return NextResponse.json({ exists: false, content: null, error: err.message }, { status: 500 });
+  }
+}
+
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const email = req.nextUrl.searchParams.get("email");
+    if (!email) {
+      return NextResponse.json({ success: false, error: "Email is required" }, { status: 400 });
+    }
+
+    await docClient.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        userId: `USER#${email}`,
+        SK: "INSIGHTS",
+      },
+    }));
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("Error deleting insights:", err.name, err.message);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

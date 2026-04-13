@@ -41,4 +41,4 @@ cdk.out
 project-icarus
 
 # Files
-election_cycles.json
+!election_cycles.json

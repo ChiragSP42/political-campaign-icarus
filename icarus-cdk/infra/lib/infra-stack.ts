@@ -10,7 +10,10 @@ import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
 import * as aws_dynamodb from 'aws-cdk-lib/aws-dynamodb';
-dotenv.config();
+import * as aws_lambda_event_sources from 'aws-cdk-lib/aws-lambda-event-sources';
+dotenv.config({
+  path: path.join(__dirname, "../../../.env")
+})
 
 export class IcarusDannerInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -69,7 +72,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // 2. S3 BUCKETS
     // =====================================================
 
-    // Store election data
+    // Store election data - NEED TO DEPRECATE
     const election_data_bucket = new aws_s3.Bucket(this, 'ElectionDataBucket', {
       bucketName: `icarus-election-data-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -86,27 +89,6 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // Store relevant election rules and regulations
     const election_laws = new aws_s3.Bucket(this, 'ElectionLawsBucket', {
       bucketName: `election-laws-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store filled questionnaires
-    const questionnaires = new aws_s3.Bucket(this, 'Questionnaires', {
-      bucketName: `icarus-questionnaires-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store generated insights
-    const generated_insights = new aws_s3.Bucket(this, 'GeneratedInsights', {
-      bucketName: `generated-insights-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    })
-
-    // Store chatbot responses
-    const chatbot_responses = new aws_s3.Bucket(this, 'ChatbotResponses', {
-      bucketName: `chatbot-responses-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     })
@@ -203,9 +185,9 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     const questionnaireTable = new aws_dynamodb.Table(this, 'QuestionnaireTable', {
       tableName: `questionnaire-${this.account}`,
       partitionKey: { name: 'userId', type: aws_dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: aws_dynamodb.AttributeType.STRING },
       billingMode: aws_dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      stream: aws_dynamodb.StreamViewType.NEW_IMAGE,
     })
 
     questionnaireTable.grantReadWriteData(lambda_role)
@@ -256,13 +238,13 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       role: lambda_role,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       environment: {
-        S3_GENERATED_INSIGHTS: process.env.S3_GENERATED_INSIGHTS || 'generated-insights',
-        S3_QUESTIONNAIRES: process.env.S3_QUESTIONNAIRES || 'icarus-questionnaires',
         CHATBOT_PROMPT: process.env.CHATBOT_PROMPT || 'campaign_advisor_prompt.md',
         PROMPT_BUCKET: process.env.PROMPT_BUCKET || 'prompt-bucket',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
         CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
+        MAIN_TABLE_NAME: mainTable.tableName,
+        QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })
 
@@ -284,9 +266,19 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         ELECTION_CYCLE_FILENAME: process.env.ELECTION_CYCLE_FILENAME || 'election_cycles.json',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
-        S3_GENERATED_INSIGHTS: process.env.S3_GENERATED_INSIGHTS || 'generated-insights'
+        MAIN_TABLE_NAME: mainTable.tableName,
+        QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
       }
     })
+
+    // Trigger generate-insights-lambda when questionnaire is saved to DynamoDB
+    generate_insights_lambda.addEventSource(
+      new aws_lambda_event_sources.DynamoEventSource(questionnaireTable, {
+        startingPosition: aws_lambda.StartingPosition.LATEST,
+        batchSize: 1,
+        retryAttempts: 2,
+      })
+    )
 
     // Trigger chatbot-lambda
     const trigger_chatbot_lambda = new aws_lambda.Function(this, 'trigger-chatbot-lambda', {
@@ -308,7 +300,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     // Check chatbot response
     const check_chatbot_response_lambda = new aws_lambda.Function(this, 'check-llm-response-lambda', {
       functionName: 'check-llm-response-lambda',
-      description: 'Check is chatbot-lambda stored response in S3',
+      description: 'Check if chatbot-lambda has stored response in DynamoDB',
       code: aws_lambda.Code.fromAsset(path.join(__dirname, "../../services/lambdas/")),
       handler: 'check_LLM_response_lambda.lambda_handler',
       runtime: aws_lambda.Runtime.PYTHON_3_13,
@@ -317,16 +309,9 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       role: lambda_role,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
       environment: {
-        S3_RESPONSES: process.env.S3_RESPONSES || 'chatbot-responses',
         CHAT_HISTORY_TABLE: chatHistoryTable.tableName,
       }
     })
-
-    // Trigger generate-insights-lambda when questionnaire gets populated
-    questionnaires.addEventNotification(
-      aws_s3.EventType.OBJECT_CREATED_PUT,
-      new s3n.LambdaDestination(generate_insights_lambda),
-    );
 
     // Session manager lambda
     const session_manager_lambda = new aws_lambda.Function(this, 'session-manager-lambda', {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { LogIn, UserPlus, Mail, Lock, ShieldCheck } from "lucide-react";
+import { LogIn, UserPlus, Mail, Lock, ShieldCheck, Loader2 } from "lucide-react";
 
 type Tab = "signin" | "signup";
 type SignupStep = "form" | "verify";
@@ -15,8 +15,23 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
-  const { setUser } = useAuth();
+  const { setUser, authenticated, questionnaireCompleted, loading: authLoading } = useAuth();
   const router = useRouter();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && authenticated) {
+      router.replace(questionnaireCompleted ? "/dashboard" : "/questionnaire");
+    }
+  }, [authLoading, authenticated, questionnaireCompleted, router]);
+
+  if (authLoading || authenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 size={32} className="animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
 
   async function handleSignIn(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -84,7 +99,7 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-[var(--primary)] mb-2">🎭 Project Icarus</h1>
+          <h1 className="text-4xl font-bold text-[var(--primary)] mb-2">🗳️ WinFlip</h1>
           <p className="text-[var(--muted)]">Campaign Strategy AI</p>
         </div>
 

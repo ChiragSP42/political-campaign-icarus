@@ -34,23 +34,30 @@ export async function POST(req: NextRequest) {
 
     // Create user row in the main DynamoDB table
     try {
+      console.log("Creating user in DynamoDB, table:", TABLE_NAME, "userId:", `USER#${email}`);
       await docClient.send(
         new PutCommand({
           TableName: TABLE_NAME,
           Item: {
             userId: `USER#${email}`,
             SK: "META#PROFILE",
-            email,
             createdAt: new Date().toISOString(),
             status: "active",
           },
           ConditionExpression: "attribute_not_exists(userId)",
         })
       );
+      console.log("Successfully created user in DynamoDB");
     } catch (ddbErr: any) {
-      // ConditionalCheckFailedException is fine — user row already exists
-      if (ddbErr.name !== "ConditionalCheckFailedException") {
-        console.error("Failed to create user in DynamoDB:", ddbErr);
+      if (ddbErr.name === "ConditionalCheckFailedException") {
+        // User row already exists — that's fine
+        console.log("User already exists in DynamoDB, skipping creation");
+      } else {
+        console.error("Failed to create user in DynamoDB:", ddbErr.name, ddbErr.message);
+        return NextResponse.json(
+          { success: false, message: "Account confirmed but failed to create user profile. Please contact support." },
+          { status: 500 }
+        );
       }
     }
 
