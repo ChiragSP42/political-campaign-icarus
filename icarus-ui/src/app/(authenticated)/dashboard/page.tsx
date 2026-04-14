@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2,
+  Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import ChatSidebar, { ChatSession } from "@/components/chat/ChatSidebar";
 
@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(50);
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const loadInsights = useCallback(async () => {
     if (!auth.email) return;
@@ -158,22 +159,31 @@ export default function DashboardPage() {
       <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Chat half — sidebar + chat panel (LEFT) */}
         <div className="flex flex-row overflow-hidden" style={{ width: `${leftPanelWidth}%` }}>
-          {/* Chat Sidebar */}
-          <div className="hidden md:block" style={{ width: "240px", flexShrink: 0 }}>
-            <ChatSidebar
-              email={auth.email || ""}
-              activeChatId={chatId}
-              onSelectSession={onSelectSession}
-              onNewChat={onNewChat}
-              sessions={sessions}
-              setSessions={setSessions}
-            />
-          </div>
+          {/* Chat Sidebar — collapsible */}
+          {sidebarOpen && (
+            <div className="hidden md:block border-r border-[var(--border)]" style={{ width: "240px", flexShrink: 0 }}>
+              <ChatSidebar
+                email={auth.email || ""}
+                activeChatId={chatId}
+                onSelectSession={onSelectSession}
+                onNewChat={onNewChat}
+                sessions={sessions}
+                setSessions={setSessions}
+              />
+            </div>
+          )}
 
           {/* Chat panel */}
           <div className="flex-1 flex flex-col bg-[#fafafa] min-w-0">
             <div className="px-5 py-3 border-b border-[var(--border)] bg-white flex items-center justify-between shrink-0">
-              <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSidebarOpen((o) => !o)}
+                  className="hidden md:flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 transition"
+                  title={sidebarOpen ? "Hide sessions" : "Show sessions"}>
+                  {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                </button>
+                <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
+              </div>
               <button onClick={() => { setMessages([]); setChatId(null); }}
                 className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--danger)] hover:bg-red-50 rounded-lg transition">
                 <Trash2 size={14} /> Clear
