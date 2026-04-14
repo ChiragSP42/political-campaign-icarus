@@ -31,7 +31,7 @@ client = TavilyClient(api_key=TAVILY_API_KEY)
 session = boto3.Session(aws_access_key_id=AWS_ACCESS_KEY,
                         aws_secret_access_key=AWS_SECRET_KEY,
                         region_name='us-east-1')
-s3_client = session.client("s3")
+# s3_client = session.client("s3")
 
 # Crawl-------------
 def crawl(url, 
@@ -291,8 +291,8 @@ def process_tavily_response(results, OFFICE_POSITION, YEAR, is_statewide):
     
 def main():
     # YEARS = [2020, 2021, 2022, 2023, 2024]
-    # YEARS = [2020]
-    # OFFICE_POSITION = 'House_of_Delegates'
+    YEARS = [2020]
+    OFFICE_POSITION = 'House_of_Delegates'
     # OFFICE_POSITION = 'Lieutenant_Governor'
     # OFFICE_POSITION = 'U.S._Senate'
     # OFFICE_POSITION = 'U.S._House'
@@ -308,26 +308,28 @@ def main():
         YEARS = get_election_years_in_window(election=election, current_year=current_year)
         is_statewide=election['is_statewide']
         for YEAR in YEARS:
-            logger.info(f"\x1b[33mYear: {YEAR}\x1b[0m")
-            # Check if election has already been populated to conserve tavily credits
-            s3_elections = helpers.list_obj_s3(s3_client=s3_client,
-                                               bucket_name=S3_BUCKET,
-                                               folder_name='',
-                                               delimiter='/')
-            s3_elections = [e.replace('/', '') for e in s3_elections]
-            # logger.debug(s3_elections)
-            if OFFICE_POSITION in s3_elections:
-                election_years = helpers.list_obj_s3(s3_client=s3_client,
-                                                     bucket_name=S3_BUCKET,
-                                                     folder_name=OFFICE_POSITION+"/",
-                                                     delimiter='/')
-                election_years = [int(y.replace('/', '').replace(OFFICE_POSITION, '')) for y in election_years]
+            # logger.info(f"\x1b[33mYear: {YEAR}\x1b[0m")
+            # # Check if election has already been populated to conserve tavily credits
+            # s3_elections = helpers.list_obj_s3(s3_client=s3_client,
+            #                                    bucket_name=S3_BUCKET,
+            #                                    folder_name='',
+            #                                    delimiter='/')
+            # s3_elections = [e.replace('/', '') for e in s3_elections]
+            # # logger.debug(s3_elections)
+            # if OFFICE_POSITION in s3_elections:
+            #     election_years = helpers.list_obj_s3(s3_client=s3_client,
+            #                                          bucket_name=S3_BUCKET,
+            #                                          folder_name=OFFICE_POSITION+"/",
+            #                                          delimiter='/')
+            #     election_years = [int(y.replace('/', '').replace(OFFICE_POSITION, '')) for y in election_years]
                 # logger.debug(election_years)
                 # if YEAR in election_years:
                 #     continue
 
-            url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_ID}"
-            instructions="Get only the election data at the precinct level as a downloadable csv"
+            # url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_ID}"
+            # url=f"https://historical.elections.virginia.gov/elections/search?df={YEAR}&dt={YEAR}&t=table&bq=false&coff[0].i={OFFICE_ID}"
+            url=f"https://historical.elections.virginia.gov/elections/search?"
+            instructions=f"Get only the election data for {OFFICE_POSITION} from {YEAR} year at the precinct level as a downloadable csv"
             logger.info("\x1b[33mBeginning crawl\x1b[0m")
             results = crawl(url=url,
                             instructions=instructions,
@@ -348,7 +350,8 @@ def main():
                     "total_votes": sum(d['district_total_votes'] for d in districts),
                     "districts": districts
                 }
-                s3_storage(complete_data=complete_data)
+                # s3_storage(complete_data=complete_data)
+                print(json.dumps(complete_data))
             logger.info("*" * 80)
             time.sleep(60)
         logger.info("-" * 80)
