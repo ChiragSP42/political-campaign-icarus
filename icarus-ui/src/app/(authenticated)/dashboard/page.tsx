@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2,
 } from "lucide-react";
@@ -194,7 +195,7 @@ export default function DashboardPage() {
                       : "bg-white border border-[var(--border)] rounded-bl-md"}`}>
                     {msg.role === "assistant" ? (
                       <div className="prose text-sm">
-                        <ReactMarkdown>{msg.content[0].text}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content[0].text}</ReactMarkdown>
                       </div>
                     ) : msg.content[0].text}
                   </div>
@@ -259,7 +260,7 @@ export default function DashboardPage() {
               </div>
             ) : insights ? (
               <div className="prose">
-                <ReactMarkdown>{insights}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{insights}</ReactMarkdown>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">

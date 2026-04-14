@@ -34,3 +34,11 @@ body {
 .prose li { margin: 0.25rem 0; }
 .prose strong { font-weight: 600; }
 .prose code { background: #f1f5f9; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.875rem; }
+
+/* Markdown table styling */
+.prose table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.8rem; }
+.prose thead { background: #f1f5f9; }
+.prose th { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
+.prose td { padding: 0.4rem 0.75rem; border: 1px solid var(--border); }
+.prose tbody tr:hover { background: #f8fafc; }
+.prose table { display: block; overflow-x: auto; }
