@@ -4,7 +4,7 @@ import * as path from 'path';
 import { Construct } from 'constructs';
 import * as aws_iam from 'aws-cdk-lib/aws-iam';
 import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
-import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as aws_ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as aws_apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
@@ -227,12 +227,15 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     })
 
     // Main chatbot lambda
-    const chatbot_lambda = new aws_lambda.Function(this, 'chatbot-lambda', {
+    const chatbot_lambda = new aws_lambda.DockerImageFunction(this, 'chatbot-lambda', {
       functionName: 'chatbot-lambda',
       description: 'Main chatbot functionality',
-      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
-      handler: 'chatbot_lambda.lambda_handler',
-      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      code: aws_lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/chatbot-lambda'),
+        {
+          platform: aws_ecr_assets.Platform.LINUX_AMD64
+        }
+      ),
       timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       role: lambda_role,
@@ -249,12 +252,15 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     })
 
     // Generate insights lambda
-    const generate_insights_lambda = new aws_lambda.Function(this, 'generate-insights-lambda', {
+    const generate_insights_lambda = new aws_lambda.DockerImageFunction(this, 'generate-insights-lambda', {
       functionName: 'generate-insights-lambda',
       description: 'Generate insights lambda',
-      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
-      handler: 'generate_insights_lambda.lambda_handler',
-      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      code: aws_lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/generate-insights-lambda/'),
+        {
+          platform: aws_ecr_assets.Platform.LINUX_AMD64
+        }
+      ),
       timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       role: lambda_role,

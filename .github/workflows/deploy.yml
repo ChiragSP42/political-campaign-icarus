@@ -6,7 +6,7 @@ on:
     branches:
       - winflip
       - winflip-dev
-      - feature/ddb-migration
+      - feature/token-limit
 
 # 2. These permissions are required for OIDC to generate the temporary token
 permissions:

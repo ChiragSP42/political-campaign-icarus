@@ -70,9 +70,9 @@ KB_ID = os.environ.get('KB_ID', '')
 CHAT_HISTORY_TABLE = os.getenv("CHAT_HISTORY_TABLE", "")
 
 # DynamoDB table reference
-chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE else None
-main_table = dynamodb.Table(MAIN_TABLE_NAME)
-questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME)
+chat_history_table = dynamodb.Table(CHAT_HISTORY_TABLE) if CHAT_HISTORY_TABLE else None #type: ignore
+main_table = dynamodb.Table(MAIN_TABLE_NAME) #type: ignore
+questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME) #type: ignore
 
 IGNORED_FIELDS = {'userId', 'savedAt', 'updatedAt'}
 
