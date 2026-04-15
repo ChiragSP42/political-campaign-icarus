@@ -121,10 +121,13 @@ def split_counter(query: str) -> Dict[str, int]:
 
 def count_tokens(prompt: str) -> Optional[int]:
     # Encoding used by Anthropic
+    messages = [{"role": "user", "content": [{"text": prompt}]}]
     try:
         response = bedrock_runtime.count_tokens(
             modelId=MODEL_ID,
-            input={"converse": prompt}
+            input={
+                "converse": {"messages": messages}
+            }
         )
         return response["inputTokens"]
     except Exception as e:
