@@ -53,7 +53,7 @@ export default function QuestionnairePage() {
       "🎯 Finalizing your campaign insights...",
     ];
     const start = Date.now();
-    const initialWait = 240000; // 4 minutes before showing "taking longer" message
+    const initialWait = 300000; // 5 minutes before showing "taking longer" message
     let i = 0;
 
     while (Date.now() - start < initialWait) {
@@ -103,7 +103,7 @@ export default function QuestionnairePage() {
         <div className="bg-white rounded-2xl shadow-lg border border-[var(--border)] p-8 max-w-lg w-full text-center">
           <Loader2 size={48} className="animate-spin text-[var(--primary)] mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Generating Your Campaign Insights</h2>
-          <p className="text-[var(--muted)] mb-4">This typically takes 1-2 minutes.</p>
+          <p className="text-[var(--muted)] mb-4">This typically takes 5-7 minutes.</p>
           <p className="text-sm font-medium text-[var(--primary)]">{pollMsg}</p>
           <button onClick={() => { router.push("/dashboard"); }}
             className="mt-6 text-sm text-[var(--muted)] hover:text-[var(--text)] underline">
