@@ -228,7 +228,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
 
     // Main chatbot lambda
     const chatbot_lambda = new aws_lambda.DockerImageFunction(this, 'chatbot-lambda', {
-      functionName: 'chatbot-lambda',
+      functionName: 'chatbot-lambda-v2',
       description: 'Main chatbot functionality',
       code: aws_lambda.DockerImageCode.fromImageAsset(
         path.join(__dirname, '../../services/lambdas/chatbot-lambda'),
@@ -253,7 +253,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
 
     // Generate insights lambda
     const generate_insights_lambda = new aws_lambda.DockerImageFunction(this, 'generate-insights-lambda', {
-      functionName: 'generate-insights-lambda',
+      functionName: 'generate-insights-lambda-v2',
       description: 'Generate insights lambda',
       code: aws_lambda.DockerImageCode.fromImageAsset(
         path.join(__dirname, '../../services/lambdas/generate-insights-lambda/'),
