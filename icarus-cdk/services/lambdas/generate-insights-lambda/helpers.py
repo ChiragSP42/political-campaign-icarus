@@ -98,7 +98,7 @@ def split_counter(query: str) -> Dict[str, int]:
             # Count tokens and check if less than limit
             token_count = count_tokens(prompt=query_subset)
             print(f"Tokens of {i}th part: {token_count}")
-            if token_count and token_count <= INPUT_TOKEN_LIMIT:
+            if not token_count:
                 counting_failed_flag = True
                 break
             else:
