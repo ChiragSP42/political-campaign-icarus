@@ -1,28 +1,3 @@
-"""
-Lambda Function: generate-insights
-
-Purpose:
-  Retrieves completed questionnaire from DynamoDB Streams event and generates insights.
-  Lambda is triggered by DynamoDB Streams on the Questionnaire table.
-  Generated insights are stored in the Main DynamoDB table with SK = INSIGHTS.
-  
-Input: DynamoDB Streams event (NEW_IMAGE) from Questionnaire table
-  
-Output:
-{
-    'statusCode': 200,
-    'body': json.dumps({
-        'success': True,
-        'message': 'Generated insights for {userId}',
-        'userId': <userId>,
-    }),
-    'headers': {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-    }
-}
-"""
-
 import json
 import boto3
 import os
@@ -36,13 +11,13 @@ from typing import (
 )
 from botocore.config import Config
 from datetime import datetime, date
-from botocore.exceptions import ClientError
-from boto3.dynamodb.types import TypeDeserializer
+import tiktoken
+from threading import Lock
 
 # Initialize Boto3 Clients
 config = Config(
     read_timeout=300,
-    connect_timeout=60,
+    connect_timeout=300,
     retries={
         'total_max_attempts': 5,
         'mode': 'adaptive'
@@ -51,11 +26,10 @@ config = Config(
 bedrock_runtime = boto3.client("bedrock-runtime", config=config)
 s3_client = boto3.client("s3")
 sts_client = boto3.client("sts")
-bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
 dynamodb = boto3.resource('dynamodb')
-deserializer = TypeDeserializer()
 
 # Environment variables
+INPUT_TOKEN_LIMIT = 190000
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
@@ -67,96 +41,13 @@ MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v
 KB_ID = os.environ.get('KB_ID', '')
 MAIN_TABLE_NAME = os.getenv("MAIN_TABLE_NAME")
 
-main_table = dynamodb.Table(MAIN_TABLE_NAME)
+main_table = dynamodb.Table(MAIN_TABLE_NAME) #type: ignore
 
 response = s3_client.get_object(Bucket=PROMPT_BUCKET, Key=ELECTION_CYCLE_FILENAME)
 ELECTION_CYCLES_DATA = json.loads(response["Body"].read().decode('utf-8'))
 
 # Fields to ignore when extracting questionnaire answers from DynamoDB record
 IGNORED_FIELDS = {'userId', 'savedAt', 'updatedAt'}
-
-
-def deserialize_dynamodb_record(record: Dict) -> Dict:
-    """Convert DynamoDB stream record format to plain Python dict."""
-    return {k: deserializer.deserialize(v) for k, v in record.items()}
-
-
-def lambda_handler(event, context):
-    """
-    Main Lambda handler function triggered by DynamoDB Streams on the Questionnaire table.
-    Parses the new questionnaire record, generates insights, and saves them to the Main table.
-    """
-    
-    try:
-        for record in event.get('Records', []):
-            # Only process INSERT and MODIFY events
-            event_name = record.get('eventName')
-            if event_name not in ('INSERT', 'MODIFY'):
-                print(f"Skipping event: {event_name}")
-                continue
-
-            # Get the new image from the stream record
-            new_image = record.get('dynamodb', {}).get('NewImage')
-            if not new_image:
-                print("No NewImage in stream record, skipping")
-                continue
-
-            # Deserialize DynamoDB types to plain Python types
-            item = deserialize_dynamodb_record(new_image)
-            print(f"Received DynamoDB stream record: {json.dumps(item, default=str)}")
-
-            user_id = item.get('userId')
-            if not user_id:
-                print("No userId found in record, skipping")
-                continue
-
-            # Extract questionnaire answers (everything except ignored fields)
-            questionnaire_answers = {k: v for k, v in item.items() if k not in IGNORED_FIELDS}
-            print(f"Questionnaire answers for {user_id}: {json.dumps(questionnaire_answers, default=str)}")
-
-            # Generate insights
-            generated_insights = call_chatbot_logic(
-                bedrock_agent_runtime=bedrock_agent_runtime,
-                s3_client=s3_client,
-                bedrock_runtime=bedrock_runtime,
-                questionnaire=questionnaire_answers
-            )
-
-            if not generated_insights:
-                print(f"No insights generated for {user_id}")
-                continue
-
-            # Save generated insights to Main DynamoDB table
-            try:
-                main_table.put_item(Item={
-                    'userId': user_id,
-                    'SK': 'INSIGHTS',
-                    'insights': generated_insights,
-                    'generatedAt': datetime.now().isoformat(),
-                })
-                print(f"Saved insights for {user_id} to Main table")
-            except Exception as e:
-                print(f"Failed to save insights to Main table: {str(e)}")
-
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'success': True,
-                'message': 'Insights generation complete',
-            }),
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        }
-    
-    except json.JSONDecodeError:
-        return error_response(400, 'Invalid JSON in request body')
-    
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return error_response(500, str(e))
-
 
 def error_response(status_code, message):
     """Helper function to return error responses."""
@@ -169,91 +60,106 @@ def error_response(status_code, message):
         }
     }
 
-
-def call_chatbot_logic(bedrock_runtime: Any, 
-                       bedrock_agent_runtime: Any, 
-                       s3_client: Any,
-                       questionnaire: Dict) -> str:
-    
-    user_context_string = ""
-    try:
-        # Step 2: Prepare context from questionnaire
-        user_context_string = prepare_user_context(questionnaire)
-    except Exception as e:
-        print('Problem preparing context from questionnaire: {str(e)}')
-        return ""
-    
-    chatbot = PCMChatbot(scope_model_id=MODEL_ID,
-                        model_id=MODEL_ID,
-                        s3_client=s3_client,
-                        bedrock_runtime=bedrock_runtime,
-                        bedrock_agent_runtime=bedrock_agent_runtime,
-                        candidate_context=questionnaire)
-    
-    extracted_data = None
-    try:
-        # Load candidates election data and other election's data for use.
-        candidate_election_data, other_election_data = chatbot.load_data()
-        if candidate_election_data and other_election_data:
-            extracted_data = candidate_election_data + other_election_data
-            print("Loaded election data")
-    except Exception as e:
-        print(f'Error loading election data: {str(e)}')
-        return ""
-    
-    textual_data = ""
-    try:
-        # Formatting data for LLM...
-        textual_data = chatbot.create_llm_prompt_with_context_all_elections(extracted_data=extracted_data,
-                                                                            candidate_context=user_context_string)
-        if textual_data:
-            print(f"Textual data: {textual_data[:20]}")
-    except Exception as e:
-        print(f"Error formatting data for LLM: {str(e)}")
-        return ""
-
-    try:
-        # Final response from Bedrock...
-        print("Final response from Bedrock...")
-        response = chatbot.get_answer_from_bedrock(prompt=textual_data)
-        answer = response['output']['message']['content'][0]['text']
-        return answer
-    except Exception as e:
-        print(f"Error getting final response from Bedrock: {str(e)}")
-        return "Too data to handle, could not generate insights"
-    
-
-def prepare_user_context(questionnaire: dict) -> str:
+def split_counter(query: str) -> Dict[str, int]:
     """
-    Convert questionnaire data into context for the LLM.
-    
-    Extract:
-    - Office running for
-    - District
-    - Background info (military, public service, etc.)
-    - Communication archetype (Firebrand, Bridge-Builder, etc.)
+    This function determines how many concurrent LLM calls are needed 
+    by counting how many splits it takes to pass through the model.
+
+    Args:
+        enriched_questions (List): List of dict containing section, question and context
+        document_bytes (_type_): The application form template
+        application_writing_prompt (str): The system prompt
+
+    Returns:
+        int: Number of split
     """
-    
-    answers = questionnaire.get('answers', {})
-    
-    context = []
-    for key, value in questionnaire.items():
-        if key == "fullName":
-            format = f'Full name of candidate: {value}'
-            context.append(format)
-        elif key == 'district_name':
-            format = f'District candidate is running for: {value}'
-            context.append(format)
-        elif key == 'office_position':
-            format = f'Office candidate is running for: {value}'
-            context.append(format)
+    # Start off with two
+    split = 2
+    remainder = 1
+    split_tokens = []
+    print(f"Total length of query: {len(query)}")
+    while True:
+        if split > 20:
+            break
+        print(f"Split: {split}")
+        parts, remainder = divmod(len(query), split)
+        print(f"Parts: {parts}, Remainder: {remainder}")
+        start_index = 0
+        # Flag to determine if all splits passed or not
+        counting_failed_flag = False
+        for i in range(split):
+            end_index = start_index + parts + (1 if i<remainder else 0)
+            print(f"Start index: {start_index}, End index: {end_index}")
+            query_subset = query[start_index: end_index]
+            start_index = end_index
+
+            # Count tokens and check if less than limit
+            token_count = count_tokens(prompt=query_subset)
+            print(f"Tokens of {i}th part: {token_count}")
+            if not token_count:
+                counting_failed_flag = True
+                break
+            else:
+                split_tokens.append(token_count)
+        # If split counting failed, increment split
+        if counting_failed_flag:
+            split += 1
         else:
-            format = f"Question: {key}\nAnswer: {value}"
-            context.append(format)
+            print(f"{split} splits work. Each split has {parts} with {remainder} remainder")
+            return {
+                "split": split,
+                "parts": parts,
+                "remainder": remainder
+            }
+    # Split counter failed
+    return {
+        "split": 0,
+        "parts": 0,
+        "remainder": 0
+    }
 
-    context = "\n".join(context)
-    return context
 
+def count_tokens(prompt: str) -> Optional[int]:
+    # Counting using AWS Bedrock Runtime count_tokens API
+    # messages = [{"role": "user", "content": [{"text": prompt}]}]
+    # try:
+    #     response = bedrock_runtime.count_tokens(
+    #         modelId=MODEL_ID,
+    #         input={
+    #             "converse": {"messages": messages}
+    #         }
+    #     )
+    #     return response["inputTokens"]
+    # except Exception as e:
+    #     print("Counting tokens failed")
+    #     print(e)
+    #     return None
+
+    # Counting using tiktoken library
+    try:
+        encoding = tiktoken.get_encoding('cl100k_base')
+        tokens = len(encoding.encode(prompt))
+        return tokens
+    except Exception as e:
+        print("Counting tokens failed")
+        print(e)
+        return None
+
+class ProgressTracker:
+    def __init__(self, total):
+        self.total = total
+        self.completed = 0
+        self.failed = 0
+        self.lock = Lock()
+    
+    def increment_completed(self):
+        with self.lock:
+            self.completed += 1
+            print(f"Progress: {self.completed}/{self.total} completed, {self.failed} failed")
+    
+    def increment_failed(self):
+        with self.lock:
+            self.failed += 1
 
 class PCMChatbot():
     def __init__(self,
@@ -502,14 +408,14 @@ class PCMChatbot():
                 return 'ALL_ELECTIONS'
             
     def create_llm_prompt_with_context_all_elections(self,
-                                                     extracted_data: Optional[List[Dict[str, Any]]], 
+                                                     election_data: Optional[List[Dict[str, Any]]], 
                                                      candidate_context: str) -> str:
         """
         Create the final prompt for the LLM with all elections precinct-level context.
         """
-        if extracted_data:
+        if election_data:
             print("Using Insights Generalized Prompt")
-            context = self._format_for_llm_context_all_elections(extracted_data)
+            context = self._format_for_llm_context_all_elections(election_data)
             print(f"Formatted DATA context: {context[:20]}")
             election_cycles_context = self._generate_election_cycles_context(5)
 
@@ -540,7 +446,7 @@ class PCMChatbot():
         else:
             return ""
     
-    def get_answer_from_bedrock(self, prompt: str) -> Dict:
+    def get_answer_from_bedrock(self, prompt: str, progress: Optional[ProgressTracker]) -> str:
         """
         Call Bedrock to get the final strategic answer.
         """
@@ -549,15 +455,23 @@ class PCMChatbot():
                     'content': [{'text': prompt}]
                 }
         messages = [message]
-        response = self.bedrock_runtime.converse(
-            modelId=self.model_id,
-            messages=messages,
-            inferenceConfig={
-                'temperature': 0.3,
-                'maxTokens': 8000
-            }
-        )
-        return response
+        try:
+            response = self.bedrock_runtime.converse(
+                modelId=self.model_id,
+                messages=messages,
+                inferenceConfig={
+                    'temperature': 0,
+                    'maxTokens': 20000
+                }
+            )
+            if progress:
+                progress.increment_completed()
+            return response['output']['message']['content'][0]['text']
+        except Exception as e:
+            print(f"N + 1 approach failed when generating part answers: {e}")
+            if progress:
+                progress.increment_failed()
+            return ""
     
     def _retrieve_laws(self, user_query: str) -> str:
         response = self.bedrock_agent_runtime.retrieve(

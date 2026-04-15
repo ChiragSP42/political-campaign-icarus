@@ -4,7 +4,7 @@ import * as path from 'path';
 import { Construct } from 'constructs';
 import * as aws_iam from 'aws-cdk-lib/aws-iam';
 import * as aws_lambda from 'aws-cdk-lib/aws-lambda';
-import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
+import * as aws_ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as aws_apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as aws_cognito from 'aws-cdk-lib/aws-cognito';
 import * as aws_s3 from 'aws-cdk-lib/aws-s3';
@@ -227,12 +227,15 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     })
 
     // Main chatbot lambda
-    const chatbot_lambda = new aws_lambda.Function(this, 'chatbot-lambda', {
-      functionName: 'chatbot-lambda',
+    const chatbot_lambda = new aws_lambda.DockerImageFunction(this, 'chatbot-lambda', {
+      functionName: 'chatbot-lambda-v2',
       description: 'Main chatbot functionality',
-      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
-      handler: 'chatbot_lambda.lambda_handler',
-      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      code: aws_lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/chatbot-lambda'),
+        {
+          platform: aws_ecr_assets.Platform.LINUX_AMD64
+        }
+      ),
       timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       role: lambda_role,
@@ -249,12 +252,15 @@ export class IcarusDannerInfraStack extends cdk.Stack {
     })
 
     // Generate insights lambda
-    const generate_insights_lambda = new aws_lambda.Function(this, 'generate-insights-lambda', {
-      functionName: 'generate-insights-lambda',
+    const generate_insights_lambda = new aws_lambda.DockerImageFunction(this, 'generate-insights-lambda', {
+      functionName: 'generate-insights-lambda-v2',
       description: 'Generate insights lambda',
-      code: aws_lambda.Code.fromAsset(path.join(__dirname, '../../services/lambdas/')),
-      handler: 'generate_insights_lambda.lambda_handler',
-      runtime: aws_lambda.Runtime.PYTHON_3_13,
+      code: aws_lambda.DockerImageCode.fromImageAsset(
+        path.join(__dirname, '../../services/lambdas/generate-insights-lambda/'),
+        {
+          platform: aws_ecr_assets.Platform.LINUX_AMD64
+        }
+      ),
       timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       role: lambda_role,
@@ -265,6 +271,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         PROMPT_BUCKET: process.env.PROMPT_BUCKET || 'prompt-bucket',
         ELECTION_CYCLE_FILENAME: process.env.ELECTION_CYCLE_FILENAME || 'election_cycles.json',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        FINAL_MODEL_ID: process.env.FINAL_MODEL_ID || "us.anthropic.claude-sonnet-4-6",
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
         MAIN_TABLE_NAME: mainTable.tableName,
         QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
@@ -276,7 +283,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       new aws_lambda_event_sources.DynamoEventSource(questionnaireTable, {
         startingPosition: aws_lambda.StartingPosition.LATEST,
         batchSize: 1,
-        retryAttempts: 2,
+        retryAttempts: 0,
       })
     )
 

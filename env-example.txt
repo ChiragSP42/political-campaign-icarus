@@ -22,6 +22,9 @@ MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 # Bedrock Knowledge Base ID
 KB_ID=
 
+#  Tavily API Key
+TAVILY_API_KEY=
+
 
 # =====================================================
 # icarus-ui/.env.local — Next.js Frontend Environment Variables

@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
-  Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2,
+  Send, Trash2, Download, RefreshCw, FileText, MessageSquare, Loader2, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import ChatSidebar, { ChatSession } from "@/components/chat/ChatSidebar";
 
@@ -26,6 +27,7 @@ export default function DashboardPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(50);
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const loadInsights = useCallback(async () => {
     if (!auth.email) return;
@@ -33,13 +35,41 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/insights?email=${encodeURIComponent(auth.email)}`);
       const data = await res.json();
-      if (data.exists) setInsights(data.content);
-      else setInsights(null);
-    } catch { setInsights(null); }
-    setInsightsLoading(false);
+      if (data.exists) {
+        setInsights(data.content);
+        return true;
+      } else {
+        setInsights(null);
+        return false;
+      }
+    } catch {
+      setInsights(null);
+      return false;
+    } finally {
+      setInsightsLoading(false);
+    }
   }, [auth.email]);
 
-  useEffect(() => { loadInsights(); }, [loadInsights]);
+  // Auto-poll for insights when they haven't been generated yet
+  useEffect(() => {
+    loadInsights();
+  }, [loadInsights]);
+
+  useEffect(() => {
+    if (insights !== null || !auth.email) return;
+    // insights are null — start polling every 10s until they arrive
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/insights?email=${encodeURIComponent(auth.email!)}`);
+        const data = await res.json();
+        if (data.exists && data.content) {
+          setInsights(data.content);
+          setInsightsLoading(false);
+        }
+      } catch { /* keep polling */ }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [insights, auth.email]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   useEffect(() => {
@@ -157,22 +187,31 @@ export default function DashboardPage() {
       <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Chat half — sidebar + chat panel (LEFT) */}
         <div className="flex flex-row overflow-hidden" style={{ width: `${leftPanelWidth}%` }}>
-          {/* Chat Sidebar */}
-          <div className="hidden md:block" style={{ width: "240px", flexShrink: 0 }}>
-            <ChatSidebar
-              email={auth.email || ""}
-              activeChatId={chatId}
-              onSelectSession={onSelectSession}
-              onNewChat={onNewChat}
-              sessions={sessions}
-              setSessions={setSessions}
-            />
-          </div>
+          {/* Chat Sidebar — collapsible */}
+          {sidebarOpen && (
+            <div className="hidden md:block border-r border-[var(--border)]" style={{ width: "240px", flexShrink: 0 }}>
+              <ChatSidebar
+                email={auth.email || ""}
+                activeChatId={chatId}
+                onSelectSession={onSelectSession}
+                onNewChat={onNewChat}
+                sessions={sessions}
+                setSessions={setSessions}
+              />
+            </div>
+          )}
 
           {/* Chat panel */}
           <div className="flex-1 flex flex-col bg-[#fafafa] min-w-0">
             <div className="px-5 py-3 border-b border-[var(--border)] bg-white flex items-center justify-between shrink-0">
-              <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSidebarOpen((o) => !o)}
+                  className="hidden md:flex items-center justify-center w-7 h-7 rounded-md text-[var(--muted)] hover:text-[var(--text)] hover:bg-gray-100 transition"
+                  title={sidebarOpen ? "Hide sessions" : "Show sessions"}>
+                  {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                </button>
+                <h2 className="font-semibold flex items-center gap-2"><MessageSquare size={18} /> Chat</h2>
+              </div>
               <button onClick={() => { setMessages([]); setChatId(null); }}
                 className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[var(--danger)] hover:bg-red-50 rounded-lg transition">
                 <Trash2 size={14} /> Clear
@@ -194,7 +233,7 @@ export default function DashboardPage() {
                       : "bg-white border border-[var(--border)] rounded-bl-md"}`}>
                     {msg.role === "assistant" ? (
                       <div className="prose text-sm">
-                        <ReactMarkdown>{msg.content[0].text}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content[0].text}</ReactMarkdown>
                       </div>
                     ) : msg.content[0].text}
                   </div>
@@ -259,16 +298,13 @@ export default function DashboardPage() {
               </div>
             ) : insights ? (
               <div className="prose">
-                <ReactMarkdown>{insights}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{insights}</ReactMarkdown>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">
+                <Loader2 size={28} className="animate-spin text-[var(--primary)] mb-3" />
                 <p className="text-[var(--muted)] mb-2">⏳ Your campaign insights are still being generated.</p>
-                <p className="text-sm text-[var(--muted)]">This typically takes 1-2 minutes.</p>
-                <button onClick={loadInsights}
-                  className="mt-4 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition">
-                  Check Again
-                </button>
+                <p className="text-sm text-[var(--muted)]">We're checking automatically — they'll appear here as soon as they're ready.</p>
               </div>
             )}
           </div>
