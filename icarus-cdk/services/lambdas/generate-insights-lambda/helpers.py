@@ -120,16 +120,25 @@ def split_counter(query: str) -> Dict[str, int]:
 
 
 def count_tokens(prompt: str) -> Optional[int]:
-    # Encoding used by Anthropic
-    messages = [{"role": "user", "content": [{"text": prompt}]}]
+    # Counting using AWS Bedrock Runtime count_tokens API
+    # messages = [{"role": "user", "content": [{"text": prompt}]}]
+    # try:
+    #     response = bedrock_runtime.count_tokens(
+    #         modelId=MODEL_ID,
+    #         input={
+    #             "converse": {"messages": messages}
+    #         }
+    #     )
+    #     return response["inputTokens"]
+    # except Exception as e:
+    #     print("Counting tokens failed")
+    #     print(e)
+    #     return None
+
+    # Counting using tiktoken library
     try:
-        response = bedrock_runtime.count_tokens(
-            modelId=MODEL_ID,
-            input={
-                "converse": {"messages": messages}
-            }
-        )
-        return response["inputTokens"]
+        encoding = tiktoken.get_encoding('cl100k_base')
+        tokens = len(encoding.encode(prompt))
     except Exception as e:
         print("Counting tokens failed")
         print(e)
