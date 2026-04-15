@@ -9,10 +9,21 @@ from typing import (
     Any,
     Set
 )
+from botocore.config import Config
 from datetime import datetime, date
 import tiktoken
 from threading import Lock
 
+# Initialize Boto3 Clients
+config = Config(
+    read_timeout=300,
+    connect_timeout=60,
+    retries={
+        'total_max_attempts': 5,
+        'mode': 'adaptive'
+    }
+)
+bedrock_runtime = boto3.client("bedrock-runtime", config=config)
 s3_client = boto3.client("s3")
 sts_client = boto3.client("sts")
 dynamodb = boto3.resource('dynamodb')
@@ -110,14 +121,16 @@ def split_counter(query: str) -> Dict[str, int]:
     }
 
 
-def count_tokens(prompt) -> Optional[int]:
+def count_tokens(prompt: str) -> Optional[int]:
     # Encoding used by Anthropic
-    encoding = tiktoken.get_encoding('cl100k_base')
     try:
-        tokens = len(encoding.encode(prompt))
-        return tokens
+        response = bedrock_runtime.count_tokens(
+            modelId=MODEL_ID,
+            input={"converse": prompt}
+        )
+        return response["inputTokens"]
     except Exception as e:
-        print(f"Too many tokens: {e}")
+        print("Counting tokens failed, N+1 strategy NEEDS to be implemented")
         return None
 
 class ProgressTracker:
