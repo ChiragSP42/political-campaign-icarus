@@ -35,13 +35,41 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/insights?email=${encodeURIComponent(auth.email)}`);
       const data = await res.json();
-      if (data.exists) setInsights(data.content);
-      else setInsights(null);
-    } catch { setInsights(null); }
-    setInsightsLoading(false);
+      if (data.exists) {
+        setInsights(data.content);
+        return true;
+      } else {
+        setInsights(null);
+        return false;
+      }
+    } catch {
+      setInsights(null);
+      return false;
+    } finally {
+      setInsightsLoading(false);
+    }
   }, [auth.email]);
 
-  useEffect(() => { loadInsights(); }, [loadInsights]);
+  // Auto-poll for insights when they haven't been generated yet
+  useEffect(() => {
+    loadInsights();
+  }, [loadInsights]);
+
+  useEffect(() => {
+    if (insights !== null || !auth.email) return;
+    // insights are null — start polling every 10s until they arrive
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/insights?email=${encodeURIComponent(auth.email!)}`);
+        const data = await res.json();
+        if (data.exists && data.content) {
+          setInsights(data.content);
+          setInsightsLoading(false);
+        }
+      } catch { /* keep polling */ }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [insights, auth.email]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   useEffect(() => {
@@ -274,12 +302,9 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center">
+                <Loader2 size={28} className="animate-spin text-[var(--primary)] mb-3" />
                 <p className="text-[var(--muted)] mb-2">⏳ Your campaign insights are still being generated.</p>
-                <p className="text-sm text-[var(--muted)]">This typically takes 1-2 minutes.</p>
-                <button onClick={loadInsights}
-                  className="mt-4 px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-medium hover:bg-[var(--primary-dark)] transition">
-                  Check Again
-                </button>
+                <p className="text-sm text-[var(--muted)]">We're checking automatically — they'll appear here as soon as they're ready.</p>
               </div>
             )}
           </div>
