@@ -132,6 +132,7 @@ def count_tokens(prompt: str) -> Optional[int]:
         return response["inputTokens"]
     except Exception as e:
         print("Counting tokens failed")
+        print(e)
         return None
 
 class ProgressTracker:
