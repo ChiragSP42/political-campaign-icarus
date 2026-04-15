@@ -79,7 +79,7 @@ def split_counter(query: str) -> Dict[str, int]:
     split_tokens = []
     print(f"Total length of query: {len(query)}")
     while True:
-        if split > 5:
+        if split > 20:
             break
         print(f"Split: {split}")
         parts, remainder = divmod(len(query), split)
