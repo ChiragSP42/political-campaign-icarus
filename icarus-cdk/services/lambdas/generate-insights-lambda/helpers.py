@@ -75,13 +75,11 @@ def split_counter(query: str) -> Dict[str, int]:
     """
     # Start off with two
     split = 2
-    # Flag to detemine when all splits have passed
-    split_failed_flag = True
     remainder = 1
     split_tokens = []
     print(f"Total length of query: {len(query)}")
-    while split_failed_flag:
-        if split >= 4:
+    while True:
+        if split > 5:
             break
         print(f"Split: {split}")
         parts, remainder = divmod(len(query), split)
@@ -104,7 +102,7 @@ def split_counter(query: str) -> Dict[str, int]:
             else:
                 split_tokens.append(token_count)
         # If split counting failed, increment split
-        if counting_failed_flag == True:
+        if counting_failed_flag:
             split += 1
         else:
             print(f"{split} splits work. Each split has {parts} with {remainder} remainder")
@@ -130,7 +128,7 @@ def count_tokens(prompt: str) -> Optional[int]:
         )
         return response["inputTokens"]
     except Exception as e:
-        print("Counting tokens failed, N+1 strategy NEEDS to be implemented")
+        print("Counting tokens failed")
         return None
 
 class ProgressTracker:
