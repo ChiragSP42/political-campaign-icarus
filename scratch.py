@@ -1,5 +1,8 @@
 from dotenv import load_dotenv
 from tavily import TavilyClient
+import os
+from typing import Literal, Optional, List, Dict
+import time
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
 
@@ -36,17 +39,17 @@ def crawl(url,
         except TimeoutError as e:
             if attempt < max_retries - 1:
                 wait_time = (5 ** attempt)
-                logger.info(f"\x1b[31mTimeout on attempt {attempt + 1}. Retrying in {wait_time}s...\x1b[0m")
+                print(f"\x1b[31mTimeout on attempt {attempt + 1}. Retrying in {wait_time}s...\x1b[0m")
                 time.sleep(wait_time)
             else:
-                logger.info(f"\x1b[31mFailed after {max_retries} attempts\x1b[0m")
+                print(f"\x1b[31mFailed after {max_retries} attempts\x1b[0m")
                 raise
 
 # url=f"https://historical.elections.virginia.gov/elections/search/year_from:{YEAR}/year_to:{YEAR}/office_id:{OFFICE_ID}"
 # url=f"https://historical.elections.virginia.gov/elections/search?df={YEAR}&dt={YEAR}&t=table&bq=false&coff[0].i={OFFICE_ID}"
 url=f"https://historical.elections.virginia.gov/search?"
 instructions=f"Get only the election data for {OFFICE_POSITION} from {YEAR} year at the precinct level as a downloadable csv"
-logger.info("\x1b[33mBeginning crawl\x1b[0m")
+print("\x1b[33mBeginning crawl\x1b[0m")
 results = crawl(url=url,
                 instructions=instructions,
                 limit=200,

@@ -101,7 +101,7 @@ def _list_inference_profiles() -> None:
     bedrock = session.client('bedrock')
     response = bedrock.list_inference_profiles()
     for profile in response.get('inferenceProfileSummaries', []):
-        print(f"Profile Name: {profile['inferenceProfileName']}\nProfile ID: {profile['inferenceProfileId']}")
+        print(f"Profile Name: {profile['inferenceProfileName']}\nProfile ID: {profile['inferenceProfileId']}\nARN: {profile['inferenceProfileArn']}")
         print("-" * 30)
 
 def _count_tokens(model_id: str, body: str) -> int:

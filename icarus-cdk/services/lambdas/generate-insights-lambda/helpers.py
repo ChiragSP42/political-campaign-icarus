@@ -17,7 +17,7 @@ from threading import Lock
 # Initialize Boto3 Clients
 config = Config(
     read_timeout=300,
-    connect_timeout=60,
+    connect_timeout=300,
     retries={
         'total_max_attempts': 5,
         'mode': 'adaptive'
@@ -29,7 +29,7 @@ sts_client = boto3.client("sts")
 dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
-INPUT_TOKEN_LIMIT = 200000
+INPUT_TOKEN_LIMIT = 190000
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
@@ -139,6 +139,7 @@ def count_tokens(prompt: str) -> Optional[int]:
     try:
         encoding = tiktoken.get_encoding('cl100k_base')
         tokens = len(encoding.encode(prompt))
+        return tokens
     except Exception as e:
         print("Counting tokens failed")
         print(e)
@@ -445,7 +446,7 @@ class PCMChatbot():
         else:
             return ""
     
-    def get_answer_from_bedrock(self, prompt: str, progress: Optional[ProgressTracker]) -> Dict:
+    def get_answer_from_bedrock(self, prompt: str, progress: Optional[ProgressTracker]) -> str:
         """
         Call Bedrock to get the final strategic answer.
         """
@@ -459,18 +460,18 @@ class PCMChatbot():
                 modelId=self.model_id,
                 messages=messages,
                 inferenceConfig={
-                    'temperature': 0.3,
-                    'maxTokens': 8000
+                    'temperature': 0,
+                    'maxTokens': 20000
                 }
             )
             if progress:
                 progress.increment_completed()
-            return response
+            return response['output']['message']['content'][0]['text']
         except Exception as e:
             print(f"N + 1 approach failed when generating part answers: {e}")
             if progress:
                 progress.increment_failed()
-            return {}
+            return ""
     
     def _retrieve_laws(self, user_query: str) -> str:
         response = self.bedrock_agent_runtime.retrieve(

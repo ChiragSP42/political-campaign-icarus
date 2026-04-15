@@ -43,7 +43,7 @@ from boto3.dynamodb.types import TypeDeserializer
 # Initialize Boto3 Clients
 config = Config(
     read_timeout=300,
-    connect_timeout=60,
+    connect_timeout=300,
     retries={
         'total_max_attempts': 5,
         'mode': 'adaptive'
@@ -57,7 +57,7 @@ dynamodb = boto3.resource('dynamodb')
 deserializer = TypeDeserializer()
 
 # Environment variables
-INPUT_TOKEN_LIMIT = 200000
+INPUT_TOKEN_LIMIT = 190000
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
@@ -66,6 +66,7 @@ PROMPT_BUCKET = f"{PROMPT_BUCKET}-{ACCOUNT_ID}"
 # TODO: Replace this with something more robust and worthy of MVP
 ELECTION_CYCLE_FILENAME = os.getenv("ELECTION_CYCLE_FILENAME", 'election_cycles.json')
 MODEL_ID = os.environ.get('MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+FINAL_MODEL_ID = os.environ.get('FINAL_MODEL_ID', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')
 KB_ID = os.environ.get('KB_ID', '')
 MAIN_TABLE_NAME = os.getenv("MAIN_TABLE_NAME")
 
@@ -90,9 +91,11 @@ def lambda_handler(event, context):
     """
     
     try:
+        print(f"Number of records: {len(event.get('Records'))}")
         for record in event.get('Records', []):
             # Only process INSERT and MODIFY events
             event_name = record.get('eventName')
+            print(f"DDB Event name: {event_name}")
             if event_name not in ('INSERT', 'MODIFY'):
                 print(f"Skipping event: {event_name}")
                 continue
@@ -117,6 +120,7 @@ def lambda_handler(event, context):
             print(f"Questionnaire answers for {user_id}: {json.dumps(questionnaire_answers, default=str)}")
 
             # Generate insights
+            start_time = time.time()
             generated_insights = call_chatbot_logic(
                 bedrock_agent_runtime=bedrock_agent_runtime,
                 s3_client=s3_client,
@@ -125,7 +129,8 @@ def lambda_handler(event, context):
                 model_id=MODEL_ID,
                 scope_model_id=MODEL_ID
             )
-
+            elapsed_time = time.time() - start_time
+            print(f"Time elapsed for Insight generation: {elapsed_time:.2f} seconds")
             if not generated_insights:
                 print(f"No insights generated for {user_id}")
                 continue
@@ -214,8 +219,7 @@ def call_chatbot_logic(bedrock_runtime: Any,
             try:
                 # Final response from Bedrock...
                 print("Final response from Bedrock...")
-                response = chatbot.get_answer_from_bedrock(prompt=textual_data, progress=None)
-                answer = response['output']['message']['content'][0]['text']
+                answer = chatbot.get_answer_from_bedrock(prompt=textual_data, progress=None)
                 return answer
             except Exception as e:
                 print(f"Error getting final response from Bedrock: {str(e)}")
@@ -225,13 +229,15 @@ def call_chatbot_logic(bedrock_runtime: Any,
             result = split_counter(query=textual_data)
             enriched_texts = []
             start_index = 0
-            context = chatbot._format_for_llm_context_all_elections(election_data)
+            parts = len(election_data) / result['split']
             for i in range(result['split']):
-                end_index = start_index + result['parts'] + (1 if i < result['remainder'] else 0)
-                extracted_data_subset = context[start_index: end_index]
-                textual_data = chatbot.create_llm_prompt_with_context_all_elections(election_data=election_data,
+                end_index = int(start_index + parts + (result['remainder'] if i == (result['split']-1) else 0))
+                print(f"Start index: {start_index}, End index: {end_index}")
+                election_data_subset = election_data[start_index: end_index]
+                print("Formatting chunked election data")
+                textual_data = chatbot.create_llm_prompt_with_context_all_elections(election_data=election_data_subset,
                                                                             candidate_context=user_context_string)
-                enriched_texts.append(extracted_data_subset)
+                enriched_texts.append(textual_data)
                 start_index = end_index
             print("Split counting done, now starting concurrent LLM calls")
             max_workers = result['split'] if result['split'] <= 3 else 3
@@ -254,27 +260,41 @@ def call_chatbot_logic(bedrock_runtime: Any,
 
             if filled_parts:
                 # Stitch the part answers and pass it through one final LLM to polish everything out
+                print("Stitching filled parts")
+                print(count_tokens(prompt=filled_parts[0]))
+                print(count_tokens(prompt=filled_parts[1]))
                 stitched = "\n".join(filled_parts)
+                final_prompt = f"{stitched}\n\nMerge the above chunked insights into a single cohesive document. Remove duplicates and consolidate overlapping sections.Keep the same format but be concise."
                 print("Final LLM call to polish it out")
-                tokens = count_tokens(f"{stitched}\n\nThe above content contains insights generated in chunks due to it's size, I want you to rewrite it as one whole piece")
+                tokens = count_tokens(prompt=final_prompt)
                 print(f"Total input tokens after everything: {tokens}")
-                start_time = time.time()
                 try:
-                    final_output = bedrock_runtime.converse(modelId=MODEL_ID,
-                                                            messages=[
-                                                                {
-                                                                    'role': 'user',
-                                                                    'content': [
-                                                                        {
-                                                                            'text': f"{stitched}\n\nThe above content contains insights generated in chunks due to it's size, I want you to rewrite it as one whole piece"
-                                                                        }
-                                                                    ]
-                                                                }
-                                                            ])
+                    start_time = time.time()
+                    # print(f"FINAL MODEL ID: {FINAL_MODEL_ID}")
+                    answer = chatbot.get_answer_from_bedrock(prompt=final_prompt, progress=None)
+                    # final_output = bedrock_runtime.converse(modelId=FINAL_MODEL_ID,
+                    #                                         messages=[
+                    #                                             {
+                    #                                                 'role': 'user',
+                    #                                                 'content': [
+                    #                                                     {
+                    #                                                         'text': f"{stitched}\n\nThe above content contains insights generated in chunks due to it's size, I want you to rewrite it as one whole piece. Maintain the same format. Do not leave out anything"
+                    #                                                     }
+                    #                                                 ]
+                    #                                             }
+                    #                                         ],
+                    #                                         inferenceConfig={
+                    #                                             'temperature': 0.1,
+                    #                                             'maxTokens': 63000
+                    #                                         })
                     elapsed_time = time.time() - start_time
                     print(f"Time elapsed for polishing LLM: {elapsed_time:.2f} seconds")
-                    return final_output['output']['message']['content'][0]['text']
+                    tokens = count_tokens(prompt=answer)
+                    print(f"Total output tokens after everything: {tokens}")
+                    # return final_output['output']['message']['content'][0]['text']
+                    return answer
                 except Exception as e:
+                    print(f"Error: {e}")
                     print("Too much data to handle in final polishing")
                     return "Too much data to process, please try with a different office/district"
             else:

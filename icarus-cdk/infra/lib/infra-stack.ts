@@ -271,6 +271,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
         PROMPT_BUCKET: process.env.PROMPT_BUCKET || 'prompt-bucket',
         ELECTION_CYCLE_FILENAME: process.env.ELECTION_CYCLE_FILENAME || 'election_cycles.json',
         MODEL_ID: process.env.MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        FINAL_MODEL_ID: process.env.FINAL_MODEL_ID || "us.anthropic.claude-sonnet-4-6",
         KB_ID: process.env.KB_ID || 'AXGUO9J7Q1',
         MAIN_TABLE_NAME: mainTable.tableName,
         QUESTIONNAIRE_TABLE_NAME: questionnaireTable.tableName
@@ -282,7 +283,7 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       new aws_lambda_event_sources.DynamoEventSource(questionnaireTable, {
         startingPosition: aws_lambda.StartingPosition.LATEST,
         batchSize: 1,
-        retryAttempts: 2,
+        retryAttempts: 0,
       })
     )
 
