@@ -18,6 +18,7 @@ sts_client = boto3.client("sts")
 dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
+INPUT_TOKEN_LIMIT = 200000
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
@@ -84,13 +85,13 @@ def split_counter(query: str) -> Dict[str, int]:
             start_index = end_index
 
             # Count tokens and check if less than limit
-            tokens = count_tokens(prompt=query_subset)
-            print(f"Tokens of {i}th part: {tokens}")
-            if not tokens:
+            token_count = count_tokens(prompt=query_subset)
+            print(f"Tokens of {i}th part: {token_count}")
+            if token_count and token_count <= INPUT_TOKEN_LIMIT:
                 counting_failed_flag = True
                 break
             else:
-                split_tokens.append(tokens)
+                split_tokens.append(token_count)
         # If split counting failed, increment split
         if counting_failed_flag == True:
             split += 1

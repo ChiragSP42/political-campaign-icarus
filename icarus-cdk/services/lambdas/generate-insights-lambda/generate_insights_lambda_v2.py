@@ -57,6 +57,7 @@ dynamodb = boto3.resource('dynamodb')
 deserializer = TypeDeserializer()
 
 # Environment variables
+INPUT_TOKEN_LIMIT = 200000
 ACCOUNT_ID = sts_client.get_caller_identity()['Account']
 INSIGHTS_GENERALISED_PROMPT = os.getenv("INSIGHTS_GENERALISED_PROMPT", 'campaign_insights_prompt.md')
 KB_INSIGHTS_PROMPT = os.getenv("KB_INSIGHTS_PROMPT", "kb_election_laws_prompt.md")
@@ -207,7 +208,8 @@ def call_chatbot_logic(bedrock_runtime: Any,
 
     # (N+1) Strategy to combat token ceiling
     while True:
-        if count_tokens(prompt=textual_data):
+        token_count = count_tokens(prompt=textual_data)
+        if token_count and token_count <= INPUT_TOKEN_LIMIT:
             print("All data fits inside one Bedrock call")
             try:
                 # Final response from Bedrock...
@@ -259,16 +261,16 @@ def call_chatbot_logic(bedrock_runtime: Any,
                 start_time = time.time()
                 try:
                     final_output = bedrock_runtime.converse(modelId=MODEL_ID,
-                                                                                messages=[
-                                                                                    {
-                                                                                        'role': 'user',
-                                                                                        'content': [
-                                                                                            {
-                                                                                                'text': f"{stitched}\n\nThe above content contains insights generated in chunks due to it's size, I want you to rewrite it as one whole piece"
-                                                                                            }
-                                                                                        ]
-                                                                                    }
-                                                                                ])
+                                                            messages=[
+                                                                {
+                                                                    'role': 'user',
+                                                                    'content': [
+                                                                        {
+                                                                            'text': f"{stitched}\n\nThe above content contains insights generated in chunks due to it's size, I want you to rewrite it as one whole piece"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            ])
                     elapsed_time = time.time() - start_time
                     print(f"Time elapsed for polishing LLM: {elapsed_time:.2f} seconds")
                     return final_output['output']['message']['content'][0]['text']
