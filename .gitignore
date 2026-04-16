@@ -40,5 +40,7 @@ cdk.out
 # Misc
 project-icarus
 
-# Files
+# Files/Folders
 !election_cycles.json
+election-data/
+election_data_migration_idea_1.md
