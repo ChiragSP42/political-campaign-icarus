@@ -11,6 +11,8 @@ import * as aws_s3 from 'aws-cdk-lib/aws-s3';
 import * as aws_s3_deployment from 'aws-cdk-lib/aws-s3-deployment';
 import * as aws_dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as aws_lambda_event_sources from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as aws_ec2 from 'aws-cdk-lib/aws-ec2';
+import * as aws_rds from 'aws-cdk-lib/aws-rds';
 dotenv.config({
   path: path.join(__dirname, "../../../.env")
 })
@@ -412,6 +414,185 @@ export class IcarusDannerInfraStack extends cdk.Stack {
       description: 'API Gateway endpoint',
       exportName: 'IcarusApiEndpoint'
     })
+
+    // =====================================================
+    // 7. ELECTION DATA RDS
+    // =====================================================
+
+    // VPC for RDS (no NAT gateways to minimize cost)
+    const electionVpc = new aws_ec2.Vpc(this, 'ElectionDataVpc', {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        { name: 'public', subnetType: aws_ec2.SubnetType.PUBLIC, cidrMask: 24 },
+        { name: 'isolated', subnetType: aws_ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
+      ],
+    });
+
+    // Security group allowing PostgreSQL access
+    const dbSecurityGroup = new aws_ec2.SecurityGroup(this, 'ElectionDbSg', {
+      vpc: electionVpc,
+      description: 'Allow PostgreSQL access to election data RDS',
+      allowAllOutbound: true,
+    });
+    dbSecurityGroup.addIngressRule(
+      aws_ec2.Peer.anyIpv4(),
+      aws_ec2.Port.tcp(5432),
+      'PostgreSQL access'
+    );
+
+    // RDS PostgreSQL instance
+    const electionDb = new aws_rds.DatabaseInstance(this, 'ElectionDataDb', {
+      engine: aws_rds.DatabaseInstanceEngine.postgres({
+        version: aws_rds.PostgresEngineVersion.VER_16,
+      }),
+      instanceType: aws_ec2.InstanceType.of(
+        aws_ec2.InstanceClass.T3,
+        aws_ec2.InstanceSize.MICRO
+      ),
+      vpc: electionVpc,
+      vpcSubnets: { subnetType: aws_ec2.SubnetType.PUBLIC },
+      securityGroups: [dbSecurityGroup],
+      databaseName: 'virginia_elections',
+      credentials: aws_rds.Credentials.fromGeneratedSecret('postgres'),
+      multiAz: false,
+      allocatedStorage: 20,
+      maxAllocatedStorage: 50,
+      publiclyAccessible: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      deletionProtection: false,
+    });
+
+    // =====================================================
+    // 7a. ELECTION DATA RDS OUTPUTS
+    // =====================================================
+
+    new cdk.CfnOutput(this, 'ElectionDbEndpoint', {
+      value: electionDb.dbInstanceEndpointAddress,
+      description: 'Election data RDS endpoint',
+    });
+
+    new cdk.CfnOutput(this, 'ElectionDbSecretArn', {
+      value: electionDb.secret!.secretArn,
+      description: 'Election data RDS credentials secret ARN',
+    });
+
+    // =====================================================
+    // 8. ETL EC2 INSTANCE (one-time, controlled by DEPLOY_ETL_EC2 env var)
+    // Set DEPLOY_ETL_EC2=true in .env to include this resource.
+    // After the ETL completes, remove the flag and redeploy to tear it down.
+    //
+    // Flow: deploy → EC2 boots → installs deps → copies etl.py + schema.sql
+    //       from CDK asset → fetches RDS creds from Secrets Manager →
+    //       runs schema.sql → runs etl.py → uploads logs to S3 → shuts down.
+    // =====================================================
+
+    if (process.env.DEPLOY_ETL_EC2 === 'true') {
+
+      // Security group for the EC2 — SSH (optional debug) + outbound
+      const etlSg = new aws_ec2.SecurityGroup(this, 'EtlEc2Sg', {
+        vpc: electionVpc,
+        description: 'ETL EC2 security group',
+        allowAllOutbound: true,
+      });
+      etlSg.addIngressRule(aws_ec2.Peer.anyIpv4(), aws_ec2.Port.tcp(22), 'SSH access (debug)');
+
+      // Allow the EC2 to talk to RDS
+      dbSecurityGroup.addIngressRule(etlSg, aws_ec2.Port.tcp(5432), 'ETL EC2 to RDS');
+
+      // IAM role for EC2
+      const etlRole = new aws_iam.Role(this, 'EtlEc2Role', {
+        assumedBy: new aws_iam.ServicePrincipal('ec2.amazonaws.com'),
+        description: 'ETL EC2 role, S3 and Secrets Manager access',
+        managedPolicies: [
+          aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+        ],
+        inlinePolicies: {
+          'etl-s3-secrets': new aws_iam.PolicyDocument({
+            statements: [
+              new aws_iam.PolicyStatement({
+                actions: ['s3:GetObject', 's3:ListBucket', 's3:PutObject'],
+                resources: ['arn:aws:s3:::predictif-election-data', 'arn:aws:s3:::predictif-election-data/*'],
+              }),
+              new aws_iam.PolicyStatement({
+                actions: ['secretsmanager:GetSecretValue'],
+                resources: [electionDb.secret!.secretArn],
+              }),
+            ],
+          }),
+        },
+      });
+
+      // ETL scripts (etl.py + schema.sql) must be uploaded to
+      // s3://predictif-election-data/etl-scripts/ before deploying.
+      // Run: aws s3 cp election-data-migration/etl.py s3://predictif-election-data/etl-scripts/etl.py --profile icarus
+      //      aws s3 cp election-data-migration/schema.sql s3://predictif-election-data/etl-scripts/schema.sql --profile icarus
+
+      // User data: install deps, copy files, run schema + ETL, upload logs, shutdown
+      const userData = aws_ec2.UserData.forLinux();
+      userData.addCommands(
+        'set -euo pipefail',
+        'exec > /var/log/etl-userdata.log 2>&1',
+        '',
+        '# Install dependencies',
+        'yum update -y',
+        'yum install -y python3 python3-pip postgresql16 jq',
+        'pip3 install psycopg2-binary boto3',
+        '',
+        '# Create working directory',
+        'mkdir -p /home/ec2-user/etl/logs',
+        'cd /home/ec2-user/etl',
+        '',
+        `# Fetch RDS credentials from Secrets Manager`,
+        `SECRET_ARN="${electionDb.secret!.secretArn}"`,
+        `REGION="${this.region}"`,
+        'SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region "$REGION" --query SecretString --output text)',
+        'DB_HOST=$(echo "$SECRET_JSON" | jq -r .host)',
+        'DB_PORT=$(echo "$SECRET_JSON" | jq -r .port)',
+        'DB_USER=$(echo "$SECRET_JSON" | jq -r .username)',
+        'DB_PASS=$(echo "$SECRET_JSON" | jq -r .password)',
+        'DB_NAME=$(echo "$SECRET_JSON" | jq -r .dbname)',
+        'DB_URL="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}"',
+        '',
+        '# Download etl.py and schema.sql from S3 (CDK asset bucket)',
+        `aws s3 cp s3://predictif-election-data/etl-scripts/etl.py /home/ec2-user/etl/etl.py --region "$REGION"`,
+        `aws s3 cp s3://predictif-election-data/etl-scripts/schema.sql /home/ec2-user/etl/schema.sql --region "$REGION"`,
+        '',
+        '# Run schema.sql',
+        'echo "Running schema.sql..."',
+        'PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f /home/ec2-user/etl/schema.sql || echo "Schema may already exist, continuing..."',
+        '',
+        '# Run ETL',
+        'echo "Starting ETL..."',
+        'cd /home/ec2-user/etl',
+        'python3 etl.py --source s3 --upload-logs --db-url "$DB_URL"',
+        '',
+        'echo "ETL complete. Shutting down in 60 seconds..."',
+        'sleep 60',
+        'shutdown -h now',
+      );
+
+      const etlInstance = new aws_ec2.Instance(this, 'EtlEc2Instance', {
+        instanceType: aws_ec2.InstanceType.of(aws_ec2.InstanceClass.T3, aws_ec2.InstanceSize.MICRO),
+        machineImage: aws_ec2.MachineImage.latestAmazonLinux2023(),
+        vpc: electionVpc,
+        vpcSubnets: { subnetType: aws_ec2.SubnetType.PUBLIC },
+        securityGroup: etlSg,
+        role: etlRole,
+        userData: userData,
+        associatePublicIpAddress: true,
+      });
+
+      new cdk.CfnOutput(this, 'EtlEc2PublicIp', {
+        value: etlInstance.instancePublicIp,
+        description: 'ETL EC2 public IP (for SSH debug if needed)',
+      });
+
+      new cdk.CfnOutput(this, 'EtlEc2InstanceId', {
+        value: etlInstance.instanceId,
+        description: 'ETL EC2 instance ID',
+      });
+    }
 
   }
 }
