@@ -1,46 +1,46 @@
-name: Deploy CDK to AWS
+# name: Deploy CDK to AWS
 
-# 1. This tells GitHub to run this workflow whenever you push to the 'main' branch
-on:
-  push:
-    branches:
-      - winflip
-      - winflip-dev
-      - feature/token-limit
+# # 1. This tells GitHub to run this workflow whenever you push to the 'main' branch
+# on:
+#   push:
+#     branches:
+#       - winflip
+#       - winflip-dev
+#       - feature/token-limit
 
-# 2. These permissions are required for OIDC to generate the temporary token
-permissions:
-  id-token: write
-  contents: read
+# # 2. These permissions are required for OIDC to generate the temporary token
+# permissions:
+#   id-token: write
+#   contents: read
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: icarus-cdk/infra
-    steps:
-      # 3. Download your code onto the GitHub runner server
-      - name: Checkout code
-        uses: actions/checkout@v4
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     defaults:
+#       run:
+#         working-directory: icarus-cdk/infra
+#     steps:
+#       # 3. Download your code onto the GitHub runner server
+#       - name: Checkout code
+#         uses: actions/checkout@v4
 
-      # 4. Install Node.js (which CDK requires)
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+#       # 4. Install Node.js (which CDK requires)
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '22'
 
-      # 5. Install your project dependencies
-      - name: Install dependencies
-        run: npm ci
+#       # 5. Install your project dependencies
+#       - name: Install dependencies
+#         run: npm ci
 
-      # 6. Trade the OIDC token for temporary AWS credentials
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::991033550091:role/GitHubActions-CDK-Deploy-Role  # <-- REPLACE THIS WITH YOUR ROLE ARN
-          aws-region: us-east-1
+#       # 6. Trade the OIDC token for temporary AWS credentials
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: arn:aws:iam::991033550091:role/GitHubActions-CDK-Deploy-Role  # <-- REPLACE THIS WITH YOUR ROLE ARN
+#           aws-region: us-east-1
 
-      # 7. Run the actual CDK deploy command
-      - name: CDK Deploy
-        run: npx cdk deploy --require-approval never
+#       # 7. Run the actual CDK deploy command
+#       - name: CDK Deploy
+#         run: npx cdk deploy --require-approval never
