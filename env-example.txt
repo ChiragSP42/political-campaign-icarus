@@ -1,6 +1,50 @@
-# AWS Access key credentials
-AWS_ACCESS_KEY = your access key here
-AWS_SECRET_KEY = your secret key here
+# =====================================================
+# Root .env — CDK Lambda Environment Variables
+# Copy this file to .env and fill in your values.
+# Used by: icarus-cdk/infra/lib/infra-stack.ts (via dotenv)
+# =====================================================
 
-# HUGGINGFACE auth token
-HUGGINGFACE_ACCESS_TOKEN = your huggingface access token here.
+# S3 bucket name prefixes (account ID is appended by the lambdas at runtime)
+S3_QUESTIONNAIRES=icarus-questionnaires
+S3_GENERATED_INSIGHTS=generated-insights
+S3_RESPONSES=chatbot-responses
+PROMPT_BUCKET=prompt-bucket
+AWS_ACCESS_KEY=
+AWS_SECRET_KEY=
+
+# Prompt file names (stored in the prompt S3 bucket)
+CHATBOT_PROMPT=campaign_prompt_v2.md
+INSIGHTS_GENERALISED_PROMPT=campaign_insights_prompt.md
+KB_INSIGHTS_PROMPT=kb_election_laws_prompt.md
+ELECTION_CYCLE_FILENAME=election_cycles.json
+
+# Bedrock model ID
+MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+# Bedrock Knowledge Base ID
+KB_ID=
+
+#  Tavily API Key
+TAVILY_API_KEY=
+
+
+# =====================================================
+# icarus-ui/.env.local — Next.js Frontend Environment Variables
+# Copy this section into icarus-ui/.env.local
+# =====================================================
+
+# AWS credentials for server-side API routes (Cognito, DynamoDB, etc.)
+CUSTOM_REGION=us-east-1
+CUSTOM_ACCESS_KEY_ID=
+CUSTOM_SECRET_ACCESS_KEY=
+
+# Cognito configuration
+COGNITO_USER_POOL_ID=
+COGNITO_CLIENT_ID=
+COGNITO_REGION=us-east-1
+
+# API Gateway endpoint (from CDK output: IcarusApiEndpoint)
+API_ENDPOINT=
+
+# DynamoDB Main table name (from CDK output or: main-<ACCOUNT_ID>)
+MAIN_TABLE_NAME=

@@ -1,8 +1,0 @@
-streamlit
-boto3
-requests
-python-dotenv
-streamlit-authenticator
-streamlit-option-menu
-pydantic
-dotenv

@@ -31,12 +31,18 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 
 # Initialize S3 resource
-s3_client = boto3.client("s3")
-sts_client = boto3.client("sts")
+# s3_client = boto3.client("s3")
+# sts_client = boto3.client("sts")
+dynamodb = boto3.resource('dynamodb')
 
-ACCOUNT_ID = sts_client.get_caller_identity()['Account']
-S3_QUESTIONNAIRES = os.getenv("S3_QUESTIONNAIRES", 'icarus-questionnaires')
-S3_QUESTIONNAIRES = f"{S3_QUESTIONNAIRES}-{ACCOUNT_ID}"
+# ACCOUNT_ID = sts_client.get_caller_identity()['Account']
+# S3_QUESTIONNAIRES = os.getenv("S3_QUESTIONNAIRES", 'icarus-questionnaires')
+# S3_QUESTIONNAIRES = f"{S3_QUESTIONNAIRES}-{ACCOUNT_ID}"
+QUESTIONNAIRE_TABLE_NAME = os.getenv("QUESTIONNAIRE_TABLE_NAME")
+
+questionnaire_table = dynamodb.Table(QUESTIONNAIRE_TABLE_NAME)
+
+
 def lambda_handler(event, context):
     """
     Main Lambda handler function for saving questionnaire.
@@ -59,27 +65,23 @@ def lambda_handler(event, context):
         if not answers:
             return error_response(400, 'Answers are required')
         
-        # Prepare item for DynamoDB
-        # DynamoDB will store email as partition key
-        # Timestamp for when it was saved
-        # All answers as attributes
-        item = {
-            'email': email,
-            'answers': answers,
-            'savedAt': timestamp,
-            'updatedAt': datetime.now().isoformat(),
-        }
-
         username = email.split("@")[0]
 
         try:
-            # Save to S3
-            s3_client.put_object(Bucket=S3_QUESTIONNAIRES,
-                                Key=f'{username}/{username}_questionnaire.json',
-                                Body=json.dumps(item),
-                                ContentType='application/json')
+            # Save to DDB
+            try:
+                item = {
+                    'userId': f"USER#{email}",
+                    'savedAt': timestamp,
+                    'updatedAt': datetime.now().isoformat(),
+                }
+                item = item | answers if isinstance(answers, dict) else item | json.loads(answers)
+                print("Item to be saved: ", item)
+                questionnaire_table.put_item(Item=item)
+            except Exception as e:
+                print("Failed to save in DDB")
         except:
-            print("Failed to save in S3")
+            print("Failed to save questionnaire")
         
         print(f"Saved questionnaire for {username}")
         
