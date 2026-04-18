@@ -5,8 +5,8 @@ ipykernel
 pandas
 tavily-python
 tqdm
-streamlit
-streamlit-authenticator
-streamlit-option-menu
 pydantic
 dotenv
+strands-agents
+strands-agents-tools
+psycopg2-binary
