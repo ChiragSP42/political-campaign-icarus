@@ -27,6 +27,16 @@ KB_ID=
 #  Tavily API Key
 TAVILY_API_KEY=
 
+# Deploy ETL EC2 script
+DEPLOY_ETL_EC2=true
+
+# PostgreSQL attributes. Get them using the CLI command in Step 2 in the README file under election-data-migration folder
+DB_NAME=
+DB_USERNAME=
+DB_PASSWORD=
+DB_PORT=
+DB_HOST=
+
 
 # =====================================================
 # icarus-ui/.env.local — Next.js Frontend Environment Variables
